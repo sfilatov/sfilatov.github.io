@@ -1,5 +1,5 @@
 ---
-published: false
+published: true
 title: Why I choose Tinypress for my blog
 layout: post
 ---
