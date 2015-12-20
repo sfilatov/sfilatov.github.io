@@ -1,0 +1,12 @@
+---
+layout: post
+title: Apache Buildr
+date: '2012-03-15T05:55:00.006-07:00'
+author: "Степан"
+tags: 
+modified_time: '2012-03-15T06:24:31.427-07:00'
+blogger_id: tag:blogger.com,1999:blog-6563657311735677139.post-5974508006063317740
+blogger_orig_url: http://sfilatov.blogspot.com/2012/03/apache-buildr.html
+---
+
+<a href="http://buildr.apache.org/">Apache Buildr</a> прекрасная вещь для управления сборкой проекта. Для тех кому нужен Maven, но не нужен xml ад и кажется кривоватым Ant. Также поддерживает Scala, Java, Groovy, Ruby. Очевидно, что скрипт на Ruby более гибкий и читаемый, чем XML.<br /><br />Для простого проекта на Netty мы можем сравнить два файла pom.xml (Maven) и Buildfile (buildr)<br /><br />pom.xml<br /><script src="https://gist.github.com/2044112.js?file=pom.xml"></script><br />Buildfile<br /><script src="https://gist.github.com/2044112.js?file=Buildfile.rb"></script><br /><br />Есть небольшие проблемы для Java разработчиков, так как они сильно привязана к IDE, в которых есть поддержка Maven. К тому же не все знают Ruby, и установка его c нуля может оказаться сложнее чем настройка Maven. Разработчикам Java помогут в этом <a href="https://rvm.beginrescueend.com/">rvm</a>, а также <a href="http://jruby.org/">JRuby</a>.<br /><br />Вот небольшой набор команд (возможно не совсем точный) для установки на Ubuntu 11.04<br /><script src="https://gist.github.com/2044112.js?file=install_on_ubuntu_natty.sh"></script>

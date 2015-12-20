@@ -1,0 +1,14 @@
+---
+layout: post
+title: Monit start timeout
+date: '2011-08-10T04:21:00.000-07:00'
+author: "Степан"
+tags: 
+modified_time: '2011-08-10T04:27:38.777-07:00'
+blogger_id: tag:blogger.com,1999:blog-6563657311735677139.post-2088879933305867611
+blogger_orig_url: http://sfilatov.blogspot.com/2011/08/monit-start-timeout.html
+---
+
+Нашел сегодня как увеличить время ожидания при запуске демона в monit. Добавка в конце строчки запуска <span style="font-weight:bold;"><span style="font-style:italic;">жирным</span></span>:
+<br />
+<br /><span style="font-style:italic;">start program = 'program launch string' <span style="font-weight:bold;">with timeout 120 seconds</span></span>.
