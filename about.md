@@ -4,12 +4,10 @@ title: About
 permalink: /about/
 ---
 
-This is the base Jekyll theme. You can find out more info about customizing your Jekyll theme, as well as basic Jekyll usage documentation at [jekyllrb.com](http://jekyllrb.com/)
+Hi. I'm Stepan Filatov. This is my blog in which I cover my journey in software development and my experience with technologies.
 
-You can find the source code for the Jekyll new theme at:
-{% include icon-github.html username="jglovier" %} /
-[jekyll-new](https://github.com/jglovier/jekyll-new)
 
-You can find the source code for Jekyll at
-{% include icon-github.html username="jekyll" %} /
-[jekyll](https://github.com/jekyll/jekyll)
+I have plenty of experience in web services development, writing quality code and aware of several technology stacks.
+If you want to ask questions or hire throw email to  [me](mailto:filatov.st@gmail.com).
+
+
