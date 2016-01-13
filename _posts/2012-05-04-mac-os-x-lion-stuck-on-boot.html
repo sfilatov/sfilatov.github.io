@@ -1,0 +1,28 @@
+---
+layout: post
+title: Mac OS X Lion stuck on boot
+date: '2012-05-04T05:01:00.001-07:00'
+author: "Stepan"
+tags: 
+modified_time: '2012-05-04T05:04:33.211-07:00'
+blogger_id: tag:blogger.com,1999:blog-6563657311735677139.post-358798852358525166
+blogger_orig_url: http://sfilatov.blogspot.com/2012/05/mac-os-x-lion-stucked-on-boot.html
+---
+
+<h3>Symptoms: </h3><p>If on startup your Mac shows Apple logo plus progress wheel for a long time. 
+<ul> 
+<li>Boot in verbose mode (<strong>CMD+V</strong> on boot)  </li>
+<li>You should see BootCacheControl missing /var/db/BootCache.plist</li>
+<li>Last message is <i>'DSMOS has arrived'</i></li>
+</ul>
+</p>
+<h3>Solution:</h3>
+<p>
+<ul>
+<li>Load in single mode (<strong>CMD+S</strong> on boot)</li>
+<li>Load root console</li>
+<li>Remount partion for writing: "mount -uw /"</li>
+<li>Fix ACL problems: "chmod -R -N /Volumes"</li>
+<li>Reboot.</li>
+</ul>
+</p>
