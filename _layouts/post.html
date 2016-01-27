@@ -13,8 +13,8 @@ comments: true
     {{ content }}
   </div>
   
-  {% if post.comments %}
-    <div class="post-comments">
+  <div class="post-comments">  
+    {% if post.comments %}
       <div id="disqus_thread"></div>
         <script>
             var disqus_config = function () {
@@ -31,8 +31,7 @@ comments: true
             })();
         </script>
         <noscript>Please enable JavaScript to view the <a href="https://disqus.com/?ref_noscript" rel="nofollow">comments powered by Disqus.</a></noscript>
-    </div>
-  {% endif %}
-  
+    {% endif %}
+  </div>  
 
 </article>
