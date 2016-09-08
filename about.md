@@ -4,10 +4,10 @@ title: About
 permalink: /about/
 ---
 
-Hi. I'm **Stepan Filatov**. This is my blog about software development.
+Hi. My name is **Stepan Filatov**. It's my blog about software engineering.
 
-I have a lot of experience with different software stacks and I want to share my knowledge on some topics.
+I had experience with some software stacks and I want to share knowledge and experience with community.
 
-If you want to ask questions or hire throw email to  [me](mailto:filatov.st@gmail.com).
+If you have questions mail [me](mailto:filatov.st@gmail.com).
 
 
