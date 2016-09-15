@@ -17,5 +17,7 @@ github_username:  sfilatov
 
 # Build settings
 markdown: kramdown
+kramdown:
+  input: GFM
 
-exclude: ["docker-compose.yml", "Gemfile", "Gemfile.lock"]
+exclude: ["docker-compose.yml", "Gemfile", "Gemfile.lock", ".gitignore"]
