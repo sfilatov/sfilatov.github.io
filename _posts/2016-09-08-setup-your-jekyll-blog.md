@@ -36,14 +36,14 @@ This is Markdown markup plus tools that allow to format it to HTML with commands
 1. Install fresh Git version from [https://git-scm.com/](https://git-scm.com/). 
 2. You need Github account. Read short step-by-step guide on [Github Pages](https://pages.github.com/) how to create you blog repo. At the end you will have ```username.github.io``` git repo locally on disk.
 3. [Download and install Docker](https://www.docker.com/products/docker).
-4. Using docker start container with jekyll, install and generate blog in ```username.github.io``` folder.
+4. Using docker start container with jekyll, install and generate blog in `username.github.io` folder.
 ```bash
 cd username.github.io
 docker run --rm --label=jekyll --volume="$(pwd)":/srv/jekyll \
  -it jekyll/jekyll:pages jekyll new /srv/jekyll
 chown -hR $USER:$GROUP .
 ```
-5. Create ```docker-compose.yml``` that allow to start jekyll server in docker on ```localhost:4000``` address.
+5. Create `docker-compose.yml` that allow to start jekyll server in docker on `http://localhost:4000` address.
 ```yml
 jekyll:
     image: jekyll/jekyll:pages
@@ -57,9 +57,9 @@ jekyll:
 ```bash
 docker-compose up
 ``` 
-7. Add new post file in directory ```_posts``` with markdown extension ```2016-09-16-post-title-here.md```
+7. Add new post file in directory `_posts` with markdown extension `2016-09-16-post-title-here.md`
 8. Write you post using [Markdown](https://github.com/adam-p/markdown-here/wiki/Markdown-Cheatsheet)
-8. Check it in the browser ```http://localhost:4000```
+8. Check it in the browser `http://localhost:4000`
 9. Commit your blog to git repo 
 ```bash
 git add --all . 
