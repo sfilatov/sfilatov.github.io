@@ -41,7 +41,7 @@ This is Markdown markup plus tools that allow to format it to HTML with commands
 ```bash
 cd username.github.io  
 docker run --rm --label=jekyll --volume="$(pwd)":/srv/jekyll \  
- -it jekyll/jekyll:pages jekyll new /srv/jekyll  
+ -it jekyll/jekyll:builder jekyll new /srv/jekyll  
 chown -hR $USER:$GROUP .  
 ```
 
@@ -49,7 +49,7 @@ chown -hR $USER:$GROUP .
 
 ```yml
 jekyll:
-    image: jekyll/jekyll:pages
+    image: jekyll/jekyll:builder
     command: jekyll serve --watch --incremental
     ports:
         - 4000:4000

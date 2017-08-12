@@ -19,4 +19,6 @@ I have started my career as Java software developer. I worked with lovely Hibern
 
 If you have interesting project ideas ping [me](mailto:filatov.st@gmail.com).
 
+Opinions are my own and not the views of my employer.
+
 
