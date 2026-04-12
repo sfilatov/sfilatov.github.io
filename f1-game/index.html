@@ -144,7 +144,7 @@
 </head>
 <body>
 
-<div id="version">v1.0.3</div>
+<div id="version">v1.0.4</div>
 
 <!-- ── Start overlay ── -->
 <div id="overlay">
@@ -898,13 +898,27 @@ let windRushGain = null, windLFODepth = null;
 
 function initAudio() {
   if (audioCtx) {
-    // iOS may have suspended the context after creation — resume it
     if (audioCtx.state === 'suspended') audioCtx.resume();
     return;
   }
   audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-  // iOS Safari starts AudioContext suspended; resume must happen in user gesture
-  audioCtx.resume();
+
+  // iOS Safari requires playing a silent buffer in the same gesture to fully
+  // unlock the audio system. resume() alone is not sufficient.
+  function unlockAudio() {
+    if (audioCtx.state === 'suspended') {
+      audioCtx.resume().then(() => {
+        const silentBuf = audioCtx.createBuffer(1, 1, audioCtx.sampleRate);
+        const src = audioCtx.createBufferSource();
+        src.buffer = silentBuf;
+        src.connect(audioCtx.destination);
+        src.start(0);
+      });
+    }
+  }
+  unlockAudio();
+  // Belt-and-suspenders: also unlock on any subsequent touch
+  document.addEventListener('touchstart', unlockAudio, { once: false, passive: true });
 
   masterGain = audioCtx.createGain();
   masterGain.gain.value = 0.001;
