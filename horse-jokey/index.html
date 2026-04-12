@@ -1,0 +1,1071 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Horse Jockey</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: #87CEEB; overflow: hidden; font-family: 'Georgia', serif; }
+canvas { display: block; width: 100vw; height: 100vh; }
+
+#hud {
+  position: absolute; top: 14px; left: 50%; transform: translateX(-50%);
+  display: none; flex-direction: row; gap: 20px; align-items: center;
+  pointer-events: none;
+}
+.hud-box {
+  background: rgba(0,0,0,0.6); border: 2px solid rgba(255,215,0,0.6);
+  border-radius: 8px; padding: 6px 18px; color: #FFD700;
+  font-size: 22px; font-weight: bold; text-shadow: 0 2px 4px rgba(0,0,0,0.8);
+  letter-spacing: 1px; text-align: center;
+}
+.hud-label { font-size: 10px; color: #aaa; display: block; letter-spacing: 2px; margin-bottom: 2px; }
+
+#overlay {
+  position: absolute; inset: 0; display: flex;
+  align-items: center; justify-content: center; background: rgba(0,0,0,0.62); color: white;
+}
+#overlay h1 {
+  font-size: 52px; color: #FFD700;
+  text-shadow: 0 4px 14px rgba(0,0,0,0.8); margin-bottom: 8px;
+}
+.subtitle { font-size: 18px; color: #ddd; margin-bottom: 28px; }
+.btn {
+  background: linear-gradient(135deg, #FFD700, #FFA500); color: #000;
+  border: none; padding: 13px 38px; font-size: 21px; font-family: 'Georgia', serif;
+  font-weight: bold; border-radius: 28px; cursor: pointer;
+  box-shadow: 0 4px 20px rgba(255,215,0,0.5); transition: transform 0.1s;
+}
+.btn:hover { transform: scale(1.05); }
+.btn:active { transform: scale(0.97); }
+.hint { font-size: 14px; color: #aaa; margin-top: 12px; }
+#gameOverPanel { display: none; text-align: center; }
+#gameOverPanel h2 { font-size: 42px; color: #FF5555; margin-bottom: 10px; }
+#finalScore { font-size: 26px; color: #FFD700; margin-bottom: 26px; }
+
+#controls-hint {
+  position: absolute; bottom: 14px; left: 50%; transform: translateX(-50%);
+  color: rgba(255,255,255,0.55); font-size: 13px; pointer-events: none;
+  display: none; text-shadow: 0 1px 3px rgba(0,0,0,0.5);
+}
+#move-btns {
+  position: absolute; bottom: 56px; left: 0; right: 0;
+  display: none; justify-content: space-between; padding: 0 18px;
+  pointer-events: none;
+}
+.move-btn {
+  width: 72px; height: 72px;
+  background: rgba(255,215,0,0.22); border: 2px solid rgba(255,215,0,0.50);
+  border-radius: 50%; display: flex; align-items: center; justify-content: center;
+  font-size: 28px; color: rgba(255,255,255,0.85);
+  pointer-events: all; cursor: pointer; user-select: none; touch-action: none;
+}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<div id="hud">
+  <div class="hud-box"><span class="hud-label">SCORE</span><span id="scoreVal">0</span></div>
+  <div class="hud-box">
+    <span class="hud-label">SPEED</span>
+    <span id="speedVal">0</span><span style="font-size:12px;color:#888"> km/h</span>
+  </div>
+  <div class="hud-box"><span class="hud-label">BEST</span><span id="bestVal">0</span></div>
+</div>
+
+<div id="overlay">
+  <div id="startPanel" style="text-align:center">
+    <h1>🐎 Horse Jockey</h1>
+    <div class="subtitle">Jump over the hurdles to score points!</div>
+    <button class="btn" id="startBtn">START RACE</button>
+    <div class="hint">SPACE / Click / Tap — Jump &nbsp;|&nbsp; ← → — Move sideways</div>
+  </div>
+  <div id="gameOverPanel">
+    <h2>💥 Knocked Over!</h2>
+    <div id="finalScore">Score: 0</div>
+    <button class="btn" id="restartBtn">RACE AGAIN</button>
+    <div class="hint">SPACE / Click / Tap — Jump &nbsp;|&nbsp; ← → — Move sideways</div>
+  </div>
+</div>
+
+<div id="controls-hint">SPACE / CLICK — Jump &nbsp;|&nbsp; ← → — Dodge</div>
+
+<div id="move-btns">
+  <div id="btn-left"  class="move-btn">◀</div>
+  <div id="btn-right" class="move-btn">▶</div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r134/three.min.js"></script>
+<script>
+'use strict';
+
+// ─── CONSTANTS ───────────────────────────────────────────────────────────────
+const GRAVITY        = 26;     // units/s²
+const JUMP_FORCE     = 9.5;    // units/s  → max height ≈ 1.73 u
+const MAX_JUMP_H     = JUMP_FORCE * JUMP_FORCE / (2 * GRAVITY); // ≈ 1.73
+const BASE_SPEED     = 7.5;    // units/s
+const MAX_SPEED      = 20;     // units/s
+const SPEED_RATE     = 0.35;   // speed gain per second
+const LATERAL_SPEED  = 7.0;    // units/s lateral movement
+const LATERAL_MAX    = 3.5;    // max X offset from centre
+const HORSE_HALF_X   = 0.5;    // horse body half-width in world X
+
+const TILE_LEN       = 22;
+const NUM_TILES      = 8;
+const POST_SPACING   = 5;
+const NUM_POSTS      = 18;     // per side
+
+const SPAWN_Z        = -52;
+const CLEAR_Z        = 18;
+const COLL_Z_HALF    = 1.4;    // ± z around horse for collision
+
+// Horse sits 0.3 units above y=0 so hooves clear the ground plane
+const HORSE_GROUND_Y = 0.3;
+// Horse belly height offset from horseGroup.position.y
+const HORSE_BELLY    = 0.62;
+// Top of the hurdle bar in world Y
+const HURDLE_TOP_Y   = 1.38;
+
+// Colors
+const C_HORSE  = 0x8B4513;
+const C_DARK   = 0x4A2400;
+const C_HOOF   = 0x181818;
+const C_RED    = 0xCC1111;
+const C_BLUE   = 0x1A3A8B;
+const C_SKIN   = 0xF5CBA7;
+const C_GOLD   = 0xFFD700;
+const C_WHITE  = 0xFFFFFF;
+const C_FENCE  = 0xF0DDB0;
+const C_POST   = 0x5C2E00;
+const C_BAR    = 0xFF3322;
+const C_SKY    = 0x87CEEB;
+
+// ─── RENDERER / SCENE / CAMERA ───────────────────────────────────────────────
+const canvas   = document.getElementById('c');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type    = THREE.PCFSoftShadowMap;
+renderer.setClearColor(C_SKY);
+
+const scene = new THREE.Scene();
+scene.fog   = new THREE.Fog(C_SKY, 45, 88);
+
+const camera = new THREE.PerspectiveCamera(58, 1, 0.1, 200);
+camera.position.set(12, 6, 0);
+camera.lookAt(0, 2, -8);
+
+// ─── LIGHTING ────────────────────────────────────────────────────────────────
+scene.add(new THREE.AmbientLight(0xffffff, 0.55));
+const sun = new THREE.DirectionalLight(0xfff9e0, 1.15);
+sun.position.set(25, 55, 15);
+sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048);
+sun.shadow.camera.left   = -50;  sun.shadow.camera.right  =  50;
+sun.shadow.camera.top    =  50;  sun.shadow.camera.bottom = -50;
+sun.shadow.camera.near   =   1;  sun.shadow.camera.far    = 200;
+scene.add(sun);
+
+// ─── GROUND & TRACK TILES ────────────────────────────────────────────────────
+const gTiles = [], tTiles = [];
+for (let i = 0; i < NUM_TILES; i++) {
+  const g = new THREE.Mesh(
+    new THREE.PlaneGeometry(40, TILE_LEN),
+    new THREE.MeshLambertMaterial({ color: i % 2 === 0 ? 0x4a7c3f : 0x3d6b35 })
+  );
+  g.rotation.x = -Math.PI / 2;
+  g.position.set(0, 0, -i * TILE_LEN);
+  g.receiveShadow = true;
+  scene.add(g);
+  gTiles.push(g);
+
+  const t = new THREE.Mesh(
+    new THREE.PlaneGeometry(11, TILE_LEN),
+    new THREE.MeshLambertMaterial({ color: i % 2 === 0 ? 0x7a6545 : 0x6b5538 })
+  );
+  t.rotation.x = -Math.PI / 2;
+  t.position.set(0, 0.01, -i * TILE_LEN);
+  scene.add(t);
+  tTiles.push(t);
+}
+
+// ─── FENCE POSTS ─────────────────────────────────────────────────────────────
+const fenceMeshes = [];
+const pGeo = new THREE.BoxGeometry(0.18, 1.4, 0.18);
+const pMat = new THREE.MeshLambertMaterial({ color: C_FENCE });
+const rGeo = new THREE.BoxGeometry(0.09, 0.09, POST_SPACING + 0.1);
+const rMat = new THREE.MeshLambertMaterial({ color: C_WHITE });
+
+for (let i = 0; i < NUM_POSTS; i++) {
+  for (const x of [6.1, -6.1]) {
+    const post = new THREE.Mesh(pGeo, pMat);
+    post.position.set(x, 0.7, -i * POST_SPACING);
+    post.castShadow = true;
+    scene.add(post);
+    const rail = new THREE.Mesh(rGeo, rMat);
+    rail.position.set(x, 0.92, -i * POST_SPACING - POST_SPACING / 2);
+    scene.add(rail);
+    fenceMeshes.push({ post, rail });
+  }
+}
+
+// ─── BACKGROUND ENVIRONMENT ──────────────────────────────────────────────────
+for (let i = 0; i < 7; i++) {
+  const h = new THREE.Mesh(
+    new THREE.SphereGeometry(10 + Math.random() * 9, 8, 5),
+    new THREE.MeshLambertMaterial({ color: 0x3a6b2a })
+  );
+  h.position.set(-22 + i * 12 + (Math.random() - 0.5) * 4, -9, -60 - Math.random() * 18);
+  scene.add(h);
+}
+
+const standColors = [0x1565C0, 0xB71C1C, 0x2E7D32, 0xF57F17, 0x6A1B9A];
+for (let i = 0; i < 11; i++) {
+  const s = new THREE.Mesh(
+    new THREE.BoxGeometry(4.5, 3.5, 0.8),
+    new THREE.MeshLambertMaterial({ color: standColors[i % 5] })
+  );
+  s.position.set(-25 + i * 5, 2.5, -62);
+  scene.add(s);
+}
+
+function makeTree(x, z) {
+  const trunk = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.3, 0.42, 3.2, 6),
+    new THREE.MeshLambertMaterial({ color: 0x5D3A1A })
+  );
+  trunk.position.set(x, 1.6, z);
+  trunk.castShadow = true;
+  scene.add(trunk);
+  const top = new THREE.Mesh(
+    new THREE.SphereGeometry(2.0 + Math.random() * 0.8, 7, 5),
+    new THREE.MeshLambertMaterial({ color: 0x2a622a + Math.floor(Math.random() * 4) * 0x081008 })
+  );
+  top.position.set(x, 4.6, z);
+  top.castShadow = true;
+  scene.add(top);
+}
+for (const x of [-9, -13, -17]) for (let i = 0; i < 12; i++) makeTree(x + (Math.random() - 0.5) * 1.5, -i * 7 - 3);
+
+// ─── HORSE MODEL ─────────────────────────────────────────────────────────────
+function buildHorse() {
+  const g = new THREE.Group();
+  const legs = [];
+
+  function box(w, h, d, col, x, y, z, rx = 0, ry = 0, rz = 0) {
+    const m = new THREE.Mesh(
+      new THREE.BoxGeometry(w, h, d),
+      new THREE.MeshLambertMaterial({ color: col })
+    );
+    m.position.set(x, y, z);
+    m.rotation.set(rx, ry, rz);
+    m.castShadow = true;
+    g.add(m);
+    return m;
+  }
+  function sph(r, col, x, y, z, sx = 1, sy = 1, sz = 1) {
+    const m = new THREE.Mesh(
+      new THREE.SphereGeometry(r, 10, 8),
+      new THREE.MeshLambertMaterial({ color: col })
+    );
+    m.position.set(x, y, z);
+    m.scale.set(sx, sy, sz);
+    m.castShadow = true;
+    g.add(m);
+    return m;
+  }
+
+  // ── BARREL BODY ──────────────────────────────────────────────────────────────
+  const bodyMesh = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.70, 0.68, 3.0, 12),
+    new THREE.MeshLambertMaterial({ color: C_HORSE })
+  );
+  bodyMesh.rotation.z = Math.PI / 2;
+  bodyMesh.scale.set(1, 1.06, 0.74);
+  bodyMesh.position.set(0, 1.58, 0);
+  bodyMesh.castShadow = true;
+  g.add(bodyMesh);
+
+  // Hindquarters — rounded muscular rump
+  sph(0.72, C_HORSE, -1.30, 1.90, 0,  1.0, 0.92, 0.76);
+
+  // Chest — rounded breast
+  sph(0.52, C_HORSE,  1.26, 1.42, 0,  1.0, 0.88, 0.76);
+
+  // Withers hump (just forward of saddle)
+  box(0.50, 0.22, 0.54, C_HORSE, 0.72, 2.24, 0);
+
+  // ── NECK ─────────────────────────────────────────────────────────────────────
+  const neckMesh = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.27, 0.44, 1.48, 8),
+    new THREE.MeshLambertMaterial({ color: C_HORSE })
+  );
+  neckMesh.rotation.z = -0.50;
+  neckMesh.position.set(1.38, 2.46, 0);
+  neckMesh.castShadow = true;
+  g.add(neckMesh);
+
+  // ── HEAD ─────────────────────────────────────────────────────────────────────
+  sph(0.37, C_HORSE, 1.92, 3.10, 0, 1.0, 1.0, 0.82);         // skull
+
+  box(0.78, 0.28, 0.44, C_HORSE, 2.28, 2.98, 0, 0, 0, -0.06); // nose bridge
+
+  // Snout — tapered cylinder
+  const snoutMesh = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.15, 0.22, 0.52, 8),
+    new THREE.MeshLambertMaterial({ color: C_DARK })
+  );
+  snoutMesh.rotation.z = Math.PI / 2;
+  snoutMesh.position.set(2.84, 2.76, 0);
+  g.add(snoutMesh);
+
+  box(0.36, 0.15, 0.38, C_DARK, 2.55, 2.60, 0);  // lower jaw/chin
+
+  // Nostrils
+  const nMat = new THREE.MeshLambertMaterial({ color: 0x150500 });
+  for (const z of [0.14, -0.14]) {
+    const n = new THREE.Mesh(new THREE.SphereGeometry(0.07, 5, 4), nMat);
+    n.position.set(3.00, 2.78, z);
+    g.add(n);
+  }
+
+  // Ears with pink inner
+  box(0.13, 0.38, 0.11, C_HORSE, 1.88, 3.50,  0.16);
+  box(0.13, 0.38, 0.11, C_HORSE, 1.88, 3.50, -0.16);
+  box(0.07, 0.22, 0.05, 0xE8A080, 1.88, 3.48,  0.16);
+  box(0.07, 0.22, 0.05, 0xE8A080, 1.88, 3.48, -0.16);
+
+  // Eyes
+  const eMat = new THREE.MeshLambertMaterial({ color: 0x080808 });
+  for (const z of [0.28, -0.28]) {
+    const e = new THREE.Mesh(new THREE.SphereGeometry(0.095, 6, 5), eMat);
+    e.position.set(1.94, 3.08, z);
+    g.add(e);
+  }
+
+  // ── MANE — cascading strands from poll down to withers ───────────────────────
+  box(0.18, 0.30, 0.13, C_DARK, 2.06, 3.38, 0);
+  box(0.32, 0.28, 0.13, C_DARK, 1.82, 3.24, 0);
+  box(0.44, 0.26, 0.13, C_DARK, 1.54, 3.10, 0);
+  box(0.52, 0.24, 0.13, C_DARK, 1.22, 2.98, 0);
+  box(0.48, 0.22, 0.13, C_DARK, 0.84, 2.86, 0);
+  box(0.36, 0.20, 0.13, C_DARK, 0.45, 2.76, 0);
+
+  // ── SADDLE + PAD ─────────────────────────────────────────────────────────────
+  box(1.02, 0.09, 0.86, 0x111111, 0.08, 2.30, 0);  // dark saddle pad
+  box(0.74, 0.13, 0.72, 0x1c0c00, 0.08, 2.39, 0);  // leather saddle
+
+  // ── TAIL ─────────────────────────────────────────────────────────────────────
+  const tailG = new THREE.Group();
+  tailG.position.set(-1.85, 1.95, 0);
+  const tb = new THREE.Mesh(
+    new THREE.BoxGeometry(0.75, 0.28, 0.30),
+    new THREE.MeshLambertMaterial({ color: C_DARK })
+  );
+  tb.position.set(-0.38, 0.06, 0);
+  tailG.add(tb);
+  const tm = new THREE.Mesh(
+    new THREE.BoxGeometry(0.65, 0.23, 0.25),
+    new THREE.MeshLambertMaterial({ color: C_DARK })
+  );
+  tm.position.set(-1.05, -0.10, 0);
+  tailG.add(tm);
+  const tt = new THREE.Mesh(
+    new THREE.BoxGeometry(0.55, 0.20, 0.32),
+    new THREE.MeshLambertMaterial({ color: C_DARK })
+  );
+  tt.position.set(-1.62, -0.28, 0);
+  tailG.add(tt);
+  g.add(tailG);
+
+  // ── LEGS ─────────────────────────────────────────────────────────────────────
+  // Pivot at hip; hoof bottom = 1.08 - 1.37 ≈ -0.29 → world Y ≈ 0.01 at HORSE_GROUND_Y=0.3
+  const legMat  = new THREE.MeshLambertMaterial({ color: C_HORSE });
+  const hoofMat = new THREE.MeshLambertMaterial({ color: C_HOOF });
+  const legDefs = [
+    { x:  1.05, z:  0.50, front: true,  idx: 0 },  // FR
+    { x:  1.05, z: -0.50, front: true,  idx: 1 },  // FL
+    { x: -1.05, z:  0.50, front: false, idx: 2 },  // RR
+    { x: -1.05, z: -0.50, front: false, idx: 3 },  // RL
+  ];
+  legDefs.forEach(({ x, z, front, idx }) => {
+    const lg = new THREE.Group();
+    lg.position.set(x, 1.08, z);
+    // Upper leg — muscular
+    const upper = new THREE.Mesh(new THREE.BoxGeometry(0.30, 0.60, 0.28), legMat);
+    upper.position.y = -0.30;
+    lg.add(upper);
+    // Knee joint
+    const knee = new THREE.Mesh(new THREE.SphereGeometry(0.13, 6, 5), legMat);
+    knee.position.y = -0.64;
+    lg.add(knee);
+    // Lower leg — thinner cannon bone
+    const lower = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.54, 0.22), legMat);
+    lower.position.y = -0.94;
+    lg.add(lower);
+    // Hoof — wider and dark
+    const hoof = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.18, 0.32), hoofMat);
+    hoof.position.y = -1.28;
+    lg.add(hoof);
+    g.add(lg);
+    legs.push({ lg, front, idx });
+  });
+
+  return { group: g, legs, tail: tailG };
+}
+
+// ─── JOCKEY MODEL (girl jockey) ──────────────────────────────────────────────
+function buildJockey() {
+  const g = new THREE.Group();
+  const C_SILK     = 0xdd2277;  // pink riding silks
+  const C_HAIR     = 0x1a0800;  // dark brown
+  const C_BREECHES = 0xf5f0e0;  // cream breeches
+
+  function box(w, h, d, col, x, y, z, rx = 0, ry = 0, rz = 0) {
+    const m = new THREE.Mesh(
+      new THREE.BoxGeometry(w, h, d),
+      new THREE.MeshLambertMaterial({ color: col })
+    );
+    m.position.set(x, y, z);
+    m.rotation.set(rx, ry, rz);
+    g.add(m);
+    return m;
+  }
+
+  // ── LOWER BODY / HIPS ────────────────────────────────────────────────────────
+  box(0.42, 0.30, 0.48, C_BREECHES, -0.04, -0.05, 0);
+
+  // ── TORSO — aggressive forward lean ─────────────────────────────────────────
+  box(0.46, 0.62, 0.42, C_SILK,  0.06, 0.26, 0, 0, 0, 0.48);
+  box(0.12, 0.62, 0.44, C_WHITE, 0.06, 0.26, 0, 0, 0, 0.48);  // chest stripe
+
+  // ── NECK ─────────────────────────────────────────────────────────────────────
+  box(0.17, 0.24, 0.18, C_SKIN, 0.25, 0.50, 0);
+
+  // ── HEAD (sphere — much rounder and more human) ───────────────────────────────
+  const headMesh = new THREE.Mesh(
+    new THREE.SphereGeometry(0.20, 9, 8),
+    new THREE.MeshLambertMaterial({ color: C_SKIN })
+  );
+  headMesh.scale.set(1.0, 1.0, 0.88);
+  headMesh.position.set(0.27, 0.66, 0);
+  g.add(headMesh);
+
+  // Nose
+  const noseMesh = new THREE.Mesh(
+    new THREE.SphereGeometry(0.055, 5, 4),
+    new THREE.MeshLambertMaterial({ color: 0xdda070 })
+  );
+  noseMesh.position.set(0.45, 0.63, 0);
+  g.add(noseMesh);
+
+  // Eyes (dark spheres on the face sides)
+  const eyeMat = new THREE.MeshLambertMaterial({ color: 0x180500 });
+  for (const zz of [0.17, -0.17]) {
+    const eye = new THREE.Mesh(new THREE.SphereGeometry(0.048, 5, 4), eyeMat);
+    eye.position.set(0.38, 0.69, zz);
+    g.add(eye);
+  }
+
+  // Cheek blush
+  const blushMat = new THREE.MeshLambertMaterial({ color: 0xffbbcc });
+  for (const zz of [0.19, -0.19]) {
+    const b = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.09, 0.03), blushMat);
+    b.position.set(0.31, 0.63, zz);
+    g.add(b);
+  }
+
+  // ── HELMET ───────────────────────────────────────────────────────────────────
+  const helm = new THREE.Mesh(
+    new THREE.SphereGeometry(0.23, 9, 7),
+    new THREE.MeshLambertMaterial({ color: C_GOLD })
+  );
+  helm.position.set(0.22, 0.80, 0);
+  g.add(helm);
+
+  // Visor / peak
+  box(0.24, 0.055, 0.40, 0x111111, 0.43, 0.67, 0, 0, 0, 0.22);
+
+  // ── HAIR BUN + PONYTAIL ──────────────────────────────────────────────────────
+  const bunMesh = new THREE.Mesh(
+    new THREE.SphereGeometry(0.11, 7, 6),
+    new THREE.MeshLambertMaterial({ color: C_HAIR })
+  );
+  bunMesh.position.set(-0.02, 0.80, 0);
+  g.add(bunMesh);
+
+  // Ponytail — hangs down; at jockey-local x≈-0.10 it clears the head silhouette
+  box(0.16, 0.44, 0.14, C_HAIR, -0.10, 0.53, 0);  // upper shaft
+  box(0.13, 0.30, 0.11, C_HAIR, -0.14, 0.22, 0);  // lower curl
+
+  // ── ARMS — two-segment with elbow bend ───────────────────────────────────────
+  for (const zz of [0.22, -0.22]) {
+    box(0.30, 0.15, 0.15, C_SILK,   0.22, 0.22, zz, 0, 0,  0.44); // upper arm
+    box(0.26, 0.13, 0.13, C_SILK,   0.44, 0.10, zz, 0, 0,  0.18); // forearm
+    box(0.17, 0.13, 0.13, 0xf0ede0, 0.57, 0.04, zz);               // glove
+  }
+
+  // ── LEGS — hanging along horse sides ─────────────────────────────────────────
+  box(0.22, 0.52, 0.22, C_BREECHES, -0.06, -0.55,  0.52);
+  box(0.22, 0.52, 0.22, C_BREECHES, -0.06, -0.55, -0.52);
+  box(0.23, 0.32, 0.26, 0x110c1e,   -0.06, -0.90,  0.52);  // boots
+  box(0.23, 0.32, 0.26, 0x110c1e,   -0.06, -0.90, -0.52);
+
+  // ── REINS (both hands) ───────────────────────────────────────────────────────
+  const reinMat = new THREE.MeshLambertMaterial({ color: 0x5A3010 });
+  for (const zz of [0.22, -0.22]) {
+    const rein = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, 1.8, 4), reinMat);
+    rein.rotation.z = Math.PI / 2 + 0.18;
+    rein.position.set(0.66, 0.14, zz);
+    g.add(rein);
+  }
+
+  return g;
+}
+
+// ─── ASSEMBLE HORSE + JOCKEY ─────────────────────────────────────────────────
+const { group: horseGroup, legs: horselegs, tail: horseTail } = buildHorse();
+horseGroup.rotation.y = Math.PI / 2;
+scene.add(horseGroup);
+
+const jockey = buildJockey();
+jockey.position.set(0.28, 2.72, 0);
+horseGroup.add(jockey);
+
+// ─── OBSTACLE POOL ───────────────────────────────────────────────────────────
+// ─── HURDLE SYSTEM ───────────────────────────────────────────────────────────
+// Shape defines collision bounds and post/bar geometry layout (all at X=0 fence group)
+const FENCE_SHAPES = {
+  full:   { xMin:-5.5, xMax: 5.5, posts:[-5.2,  5.2], bCx: 0,    bHw: 5.25 },
+  left:   { xMin:-5.5, xMax: 1.5, posts:[-5.2,  0.8], bCx:-2.2,  bHw: 3.05 },
+  right:  { xMin:-1.5, xMax: 5.5, posts:[-0.8,  5.2], bCx: 2.2,  bHw: 3.05 },
+  middle: { xMin:-3.0, xMax: 3.0, posts:[-2.6,  2.6], bCx: 0,    bHw: 2.65 },
+};
+
+// Shared materials (not disposed on recycle)
+const FM = {
+  post:        new THREE.MeshLambertMaterial({ color: C_POST }),
+  classicA:    new THREE.MeshLambertMaterial({ color: C_BAR }),
+  classicB:    new THREE.MeshLambertMaterial({ color: C_WHITE }),
+  woodPost:    new THREE.MeshLambertMaterial({ color: 0x5C2E00 }),
+  woodA:       new THREE.MeshLambertMaterial({ color: 0x8B5E3C }),
+  woodB:       new THREE.MeshLambertMaterial({ color: 0x6B4020 }),
+  brushGreen:  new THREE.MeshLambertMaterial({ color: 0x3a6b2a }),
+  brushBase:   new THREE.MeshLambertMaterial({ color: 0x5C2E00 }),
+};
+
+const pool   = [];
+const active = [];
+
+function buildFenceChildren(g, shapeKey) {
+  // Dispose and remove old children
+  while (g.children.length) {
+    const c = g.children[0];
+    if (c.geometry) c.geometry.dispose();
+    g.remove(c);
+  }
+
+  const shape = FENCE_SHAPES[shapeKey];
+  const STYLES = ['classic', 'wood', 'brush'];
+  const style  = STYLES[Math.floor(Math.random() * STYLES.length)];
+
+  // Posts
+  for (const xp of shape.posts) {
+    let post;
+    if (style === 'wood') {
+      post = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.17, 2.2, 7), FM.woodPost);
+    } else {
+      post = new THREE.Mesh(new THREE.BoxGeometry(0.22, 2.2, 0.28), FM.post);
+    }
+    post.position.set(xp, 1.1, 0);
+    post.castShadow = true;
+    g.add(post);
+  }
+
+  const bW = shape.bHw * 2;
+
+  if (style === 'brush') {
+    // Solid hedge block
+    const hedge = new THREE.Mesh(new THREE.BoxGeometry(bW, 1.15, 0.68), FM.brushGreen);
+    hedge.position.set(shape.bCx, 0.88, 0);
+    hedge.castShadow = true;
+    g.add(hedge);
+    const base = new THREE.Mesh(new THREE.BoxGeometry(bW, 0.20, 0.55), FM.brushBase);
+    base.position.set(shape.bCx, 0.27, 0);
+    g.add(base);
+    g.userData.topY = 1.50;
+  } else {
+    // 4-segment striped crossbar
+    const [matA, matB] = style === 'wood' ? [FM.woodA, FM.woodB] : [FM.classicA, FM.classicB];
+    const segW = bW / 4;
+    const barH = style === 'wood' ? 0.30 : 0.22;
+    for (let i = 0; i < 4; i++) {
+      const seg = new THREE.Mesh(new THREE.BoxGeometry(segW, barH, 0.42), i % 2 === 0 ? matA : matB);
+      seg.position.set(shape.bCx - shape.bHw + segW * 0.5 + i * segW, 1.29, 0);
+      seg.castShadow = true;
+      g.add(seg);
+    }
+    // Lower guard rail
+    const lr = new THREE.Mesh(new THREE.BoxGeometry(bW + 0.1, 0.14, 0.28), matA);
+    lr.position.set(shape.bCx, 0.70, 0);
+    g.add(lr);
+    g.userData.topY = 1.40;
+  }
+
+  g.userData.xMin    = shape.xMin;
+  g.userData.xMax    = shape.xMax;
+  g.userData.shapeKey = shapeKey;
+}
+
+for (let i = 0; i < 6; i++) {
+  const g = new THREE.Group();
+  g.visible = false;
+  scene.add(g);
+  pool.push(g);
+}
+
+let lastFenceShape = 'full';
+
+function spawnHurdle(z) {
+  // Gradually introduce lateral fences
+  let shapeKey;
+  if (score < 4) {
+    shapeKey = 'full';
+  } else {
+    const opts = score < 8
+      ? ['full', 'full', 'left', 'right']
+      : ['full', 'left', 'right', 'middle', 'left', 'right'];
+    // Avoid same partial type twice in a row
+    const candidates = opts.filter(t => t === 'full' || t !== lastFenceShape);
+    shapeKey = candidates[Math.floor(Math.random() * candidates.length)];
+  }
+  lastFenceShape = shapeKey;
+
+  const h = pool.length ? pool.pop() : (() => { const g = new THREE.Group(); scene.add(g); return g; })();
+  buildFenceChildren(h, shapeKey);
+  h.position.set(0, 0, z);
+  h.userData.scored = false;
+  h.visible = true;
+  active.push(h);
+}
+
+function recycleHurdle(h) {
+  h.visible = false;
+  pool.push(h);
+  const idx = active.indexOf(h);
+  if (idx !== -1) active.splice(idx, 1);
+}
+
+// ─── AUDIO ───────────────────────────────────────────────────────────────────
+let ctx = null, masterG = null;
+
+function initAudio() {
+  if (ctx) return;
+  ctx = new (window.AudioContext || window.webkitAudioContext)();
+  masterG = ctx.createGain();
+  masterG.gain.value = 0.65;
+  masterG.connect(ctx.destination);
+}
+
+// Horse hoof impact: low sine thud + noise click
+function playHoof(vol = 0.65, variant = 0) {
+  if (!ctx) return;
+  const t = ctx.currentTime;
+
+  const o = ctx.createOscillator(), g = ctx.createGain();
+  o.type = 'sine';
+  o.frequency.setValueAtTime(78 + variant * 10, t);
+  o.frequency.exponentialRampToValueAtTime(36, t + 0.11);
+  g.gain.setValueAtTime(vol * 0.52, t);
+  g.gain.exponentialRampToValueAtTime(0.001, t + 0.16);
+  o.connect(g); g.connect(masterG); o.start(t); o.stop(t + 0.18);
+
+  const bLen = Math.floor(ctx.sampleRate * 0.04);
+  const buf  = ctx.createBuffer(1, bLen, ctx.sampleRate);
+  const d    = buf.getChannelData(0);
+  for (let i = 0; i < bLen; i++) d[i] = (Math.random() * 2 - 1) * Math.exp(-i / (bLen * 0.12));
+  const ns = ctx.createBufferSource(); ns.buffer = buf;
+  const bf = ctx.createBiquadFilter(); bf.type = 'bandpass'; bf.frequency.value = 850 + variant * 120; bf.Q.value = 0.7;
+  const ng = ctx.createGain(); ng.gain.setValueAtTime(vol * 0.3, t); ng.gain.exponentialRampToValueAtTime(0.001, t + 0.05);
+  ns.connect(bf); bf.connect(ng); ng.connect(masterG); ns.start(t);
+}
+
+// Jump: wind whoosh + horse effort grunt
+function playJump() {
+  if (!ctx) return;
+  const t = ctx.currentTime;
+
+  const bLen = Math.floor(ctx.sampleRate * 0.38);
+  const buf  = ctx.createBuffer(1, bLen, ctx.sampleRate);
+  const d    = buf.getChannelData(0);
+  for (let i = 0; i < bLen; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / bLen);
+  const ns = ctx.createBufferSource(); ns.buffer = buf;
+  const bf = ctx.createBiquadFilter(); bf.type = 'highpass'; bf.frequency.value = 280;
+  const g  = ctx.createGain();
+  g.gain.setValueAtTime(0, t);
+  g.gain.linearRampToValueAtTime(0.22, t + 0.04);
+  g.gain.exponentialRampToValueAtTime(0.001, t + 0.42);
+  ns.connect(bf); bf.connect(g); g.connect(masterG); ns.start(t);
+
+  // Horse exertion: rising then falling pitch through a bandpass
+  const o  = ctx.createOscillator(), og = ctx.createGain();
+  const fl = ctx.createBiquadFilter(); fl.type = 'bandpass'; fl.frequency.value = 480; fl.Q.value = 1.8;
+  o.type = 'sawtooth';
+  o.frequency.setValueAtTime(240, t);
+  o.frequency.linearRampToValueAtTime(500, t + 0.14);
+  o.frequency.linearRampToValueAtTime(170, t + 0.32);
+  og.gain.setValueAtTime(0.18, t);
+  og.gain.exponentialRampToValueAtTime(0.001, t + 0.35);
+  o.connect(fl); fl.connect(og); og.connect(masterG); o.start(t); o.stop(t + 0.38);
+}
+
+// Landing: heavy thud + 4-hoof clatter
+function playLand() {
+  if (!ctx) return;
+  const t = ctx.currentTime;
+
+  const o = ctx.createOscillator(), g = ctx.createGain();
+  o.type = 'sine';
+  o.frequency.setValueAtTime(145, t);
+  o.frequency.exponentialRampToValueAtTime(40, t + 0.19);
+  g.gain.setValueAtTime(0.75, t);
+  g.gain.exponentialRampToValueAtTime(0.001, t + 0.24);
+  o.connect(g); g.connect(masterG); o.start(t); o.stop(t + 0.27);
+
+  [0, 0.055, 0.11, 0.17].forEach((dt, i) => {
+    const oc = ctx.createOscillator(), gc = ctx.createGain();
+    oc.type = 'sine';
+    oc.frequency.setValueAtTime(88, t + dt);
+    oc.frequency.exponentialRampToValueAtTime(36, t + dt + 0.08);
+    gc.gain.setValueAtTime(0.32 - i * 0.05, t + dt);
+    gc.gain.exponentialRampToValueAtTime(0.001, t + dt + 0.12);
+    oc.connect(gc); gc.connect(masterG); oc.start(t + dt); oc.stop(t + dt + 0.14);
+  });
+}
+
+// Collision: crash noise + descending tone
+function playCollision() {
+  if (!ctx) return;
+  const t = ctx.currentTime;
+
+  const bLen = Math.floor(ctx.sampleRate * 0.55);
+  const buf  = ctx.createBuffer(1, bLen, ctx.sampleRate);
+  const d    = buf.getChannelData(0);
+  for (let i = 0; i < bLen; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / bLen, 1.4);
+  const ns = ctx.createBufferSource(); ns.buffer = buf;
+  const g  = ctx.createGain(); g.gain.value = 0.6;
+  ns.connect(g); g.connect(masterG); ns.start(t);
+
+  const o = ctx.createOscillator(), og = ctx.createGain();
+  o.type = 'sawtooth';
+  o.frequency.setValueAtTime(540, t);
+  o.frequency.exponentialRampToValueAtTime(62, t + 1.0);
+  og.gain.setValueAtTime(0.4, t);
+  og.gain.exponentialRampToValueAtTime(0.001, t + 1.15);
+  o.connect(og); og.connect(masterG); o.start(t); o.stop(t + 1.2);
+}
+
+// Short ascending arpeggio on score
+function playScore() {
+  if (!ctx) return;
+  const t = ctx.currentTime;
+  [0, 0.1, 0.2].forEach((dt, i) => {
+    const o = ctx.createOscillator(), g = ctx.createGain();
+    o.type = 'square';
+    o.frequency.value = [440, 554, 660][i];
+    g.gain.setValueAtTime(0.14, t + dt);
+    g.gain.exponentialRampToValueAtTime(0.001, t + dt + 0.13);
+    o.connect(g); g.connect(masterG); o.start(t + dt); o.stop(t + dt + 0.15);
+  });
+}
+
+// ─── GAME STATE ──────────────────────────────────────────────────────────────
+let gameActive = false, gameOver = false;
+let score = 0, bestScore = 0;
+let gameSpeed  = BASE_SPEED;
+let horseY     = 0, jumpVel = 0, isJumping = false;
+let legPhase   = 0, tailWave = 0;
+let obstTimer  = 0, nextGap = 3.8;
+let hoofTimer  = 0;
+let crashAnim  = 0;
+let hudFrame   = 0;
+let camTargetX = 0;            // smoothed camera look-at X
+const keysDown = new Set();    // currently held keys
+
+// ─── INPUT ───────────────────────────────────────────────────────────────────
+function doJump() {
+  if (!gameActive || gameOver || isJumping) return;
+  isJumping = true;
+  jumpVel   = JUMP_FORCE;
+  playJump();
+}
+
+document.addEventListener('keydown', e => {
+  if (['Space','ArrowUp','ArrowLeft','ArrowRight','ArrowDown'].includes(e.code)) e.preventDefault();
+  keysDown.add(e.code);
+  if (e.code === 'Space' || e.code === 'ArrowUp') doJump();
+});
+document.addEventListener('keyup',   e => keysDown.delete(e.code));
+window.addEventListener('blur',          () => keysDown.clear());
+document.addEventListener('visibilitychange', () => { if (document.hidden) keysDown.clear(); });
+
+canvas.addEventListener('click', () => { initAudio(); doJump(); });
+canvas.addEventListener('touchstart', e => { e.preventDefault(); initAudio(); doJump(); }, { passive: false });
+
+// Mobile ◀ ▶ buttons
+const moveLeftBtn  = document.getElementById('btn-left');
+const moveRightBtn = document.getElementById('btn-right');
+for (const [btn, key] of [[moveLeftBtn, 'ArrowLeft'], [moveRightBtn, 'ArrowRight']]) {
+  btn.addEventListener('pointerdown',  e => { e.preventDefault(); initAudio(); keysDown.add(key); });
+  btn.addEventListener('pointerup',    () => keysDown.delete(key));
+  btn.addEventListener('pointercancel',() => keysDown.delete(key));
+  btn.addEventListener('pointerleave', () => keysDown.delete(key));
+}
+
+// ─── RESET / START / END ─────────────────────────────────────────────────────
+function resetGame() {
+  horseY = 0; jumpVel = 0; isJumping = false;
+  score  = 0; gameSpeed = BASE_SPEED;
+  legPhase = 0; tailWave = 0;
+  obstTimer = 0; nextGap = 3.8;
+  hoofTimer = 0; crashAnim = 0; hudFrame = 0;
+  keysDown.clear();
+  lastFenceShape = 'full';
+  camTargetX = 0;
+  while (active.length) recycleHurdle(active[0]);
+  horseGroup.position.set(0, HORSE_GROUND_Y, 0);
+  horseGroup.rotation.set(0, Math.PI / 2, 0);
+  camera.position.x = 12;
+  horselegs.forEach(({ lg }) => lg.rotation.z = 0);
+  jockey.position.y = 2.72;
+  jockey.rotation.z = 0;
+  updateHUD();
+}
+
+function startGame() {
+  resetGame();
+  gameActive = true; gameOver = false;
+  document.getElementById('overlay').style.display       = 'none';
+  document.getElementById('hud').style.display           = 'flex';
+  document.getElementById('controls-hint').style.display = 'block';
+  document.getElementById('move-btns').style.display     = 'flex';
+  spawnHurdle(SPAWN_Z);
+}
+
+function endGame() {
+  gameActive = false; gameOver = true;
+  keysDown.clear();
+  playCollision();
+  if (score > bestScore) bestScore = score;
+  document.getElementById('overlay').style.display       = 'flex';
+  document.getElementById('move-btns').style.display     = 'none';
+  document.getElementById('startPanel').style.display    = 'none';
+  document.getElementById('gameOverPanel').style.display = 'block';
+  document.getElementById('finalScore').textContent      = `Score: ${score}   Best: ${bestScore}`;
+}
+
+function updateHUD() {
+  const kmh = Math.round(gameSpeed / BASE_SPEED * 32);
+  document.getElementById('scoreVal').textContent = score;
+  document.getElementById('speedVal').textContent = kmh;
+  document.getElementById('bestVal').textContent  = bestScore;
+}
+
+// ─── UPDATE FUNCTIONS ────────────────────────────────────────────────────────
+function updatePhysics(dt) {
+  // Lateral (left / right) movement
+  if (keysDown.has('ArrowLeft'))
+    horseGroup.position.x = Math.max(-LATERAL_MAX, horseGroup.position.x - LATERAL_SPEED * dt);
+  if (keysDown.has('ArrowRight'))
+    horseGroup.position.x = Math.min( LATERAL_MAX, horseGroup.position.x + LATERAL_SPEED * dt);
+
+  if (isJumping) {
+    horseY  += jumpVel * dt;
+    jumpVel -= GRAVITY * dt;
+    if (horseY <= 0) {
+      const wasJumping = isJumping;
+      horseY = 0; jumpVel = 0; isJumping = false;
+      if (wasJumping) playLand();
+    }
+  }
+  horseGroup.position.y = horseY + HORSE_GROUND_Y;
+  // Speed ramp
+  gameSpeed = Math.min(MAX_SPEED, gameSpeed + SPEED_RATE * dt);
+}
+
+function updateAnimation(dt) {
+  const freq = 3.8 + gameSpeed * 0.55;
+  legPhase += freq * dt;
+  tailWave += 2.8 * dt;
+
+  if (isJumping) {
+    // t: 0 at ground → 1 at apex → 0 at landing (based on current height)
+    const t    = Math.min(1, Math.max(0, horseY / MAX_JUMP_H));
+    const tuck = t;   // linear: no tuck at takeoff, full tuck at apex, back to 0 at landing
+
+    // ── LEG TUCK ──────────────────────────────────────────────────────────────
+    // Front legs fold forward/up; back legs fold backward/up
+    horselegs.forEach(({ lg, front }) => {
+      const target = front ? tuck * 1.15 : -tuck * 0.95;
+      lg.rotation.z += (target - lg.rotation.z) * Math.min(1, dt * 9);
+    });
+
+    // ── BASCULE BODY PITCH ─────────────────────────────────────────────────────
+    // Horse arches forward (nose down) at apex; uprights on descent/landing
+    // ascending: tuck grows → lean forward; descending: tuck shrinks → upright
+    const pitchFwd = jumpVel > 0 ? tuck * 0.22 : tuck * 0.10;
+    horseGroup.rotation.z = pitchFwd;
+
+    // ── TAIL LIFTS ────────────────────────────────────────────────────────────
+    horseTail.rotation.z = -0.14 - tuck * 0.30 + Math.sin(tailWave * 0.75) * 0.10;
+    horseTail.rotation.x = Math.sin(tailWave) * 0.06;
+
+    // ── JOCKEY TWO-POINT POSITION ─────────────────────────────────────────────
+    // Jockey lifts out of saddle and leans further forward at apex
+    jockey.position.y = 2.72 + tuck * 0.14;
+    jockey.rotation.z = tuck * 0.20;
+
+  } else {
+    // ── GALLOP: diagonal pairs (FR+RL together, FL+RR together) ───────────────
+    horselegs.forEach(({ lg, front, idx }) => {
+      const base = (front ? 0 : Math.PI * 0.5) + (idx % 2 === 0 ? 0 : Math.PI);
+      lg.rotation.z = Math.sin(legPhase + base) * 0.60;
+    });
+
+    horseGroup.rotation.z = 0;
+
+    // Tail normal sway
+    horseTail.rotation.z = -0.14 + Math.sin(tailWave * 0.75) * 0.22;
+    horseTail.rotation.x = Math.sin(tailWave) * 0.10;
+
+    // Jockey seated
+    jockey.position.y = 2.72;
+    jockey.rotation.z = 0;
+
+    // Subtle body bob while galloping
+    horseGroup.position.y = horseY + HORSE_GROUND_Y + Math.abs(Math.sin(legPhase * 0.5)) * 0.07;
+  }
+
+  // Hoof beat audio: tempo synced to leg animation frequency
+  hoofTimer += dt;
+  const beatInterval = Math.max(0.12, 0.28 / (gameSpeed / BASE_SPEED));
+  if (hoofTimer >= beatInterval) {
+    hoofTimer -= beatInterval;
+    playHoof(0.5 + Math.min(gameSpeed / MAX_SPEED, 1) * 0.35, Math.random() > 0.5 ? 1 : 0);
+  }
+}
+
+function updateObstacles(dt) {
+  obstTimer += dt;
+  if (obstTimer >= nextGap) {
+    obstTimer = 0;
+    nextGap   = Math.max(1.5, 3.8 - score * 0.045);
+    spawnHurdle(SPAWN_Z);
+  }
+
+  const belly = horseGroup.position.y + HORSE_BELLY;
+
+  for (let i = active.length - 1; i >= 0; i--) {
+    const ob = active[i];
+    ob.position.z += gameSpeed * dt;
+
+    // Award point when horse clears the hurdle
+    if (!ob.userData.scored && ob.position.z > 1.8) {
+      ob.userData.scored = true;
+      score++;
+      playScore();
+      updateHUD();
+    }
+
+    // Collision: z-aligned AND horse X overlaps fence span AND belly below bar top
+    const hx = horseGroup.position.x;
+    const inX = hx + HORSE_HALF_X > ob.userData.xMin &&
+                hx - HORSE_HALF_X < ob.userData.xMax;
+    if (inX && Math.abs(ob.position.z) < COLL_Z_HALF && belly < ob.userData.topY) {
+      endGame();
+      return;
+    }
+
+    if (ob.position.z > CLEAR_Z) recycleHurdle(ob);
+  }
+}
+
+function updateScrolling(dt) {
+  const move  = gameSpeed * dt;
+  const totalG = NUM_TILES * TILE_LEN;
+  gTiles.forEach(t => { t.position.z += move; if (t.position.z > TILE_LEN) t.position.z -= totalG; });
+  tTiles.forEach(t => { t.position.z += move; if (t.position.z > TILE_LEN) t.position.z -= totalG; });
+
+  const totalP = NUM_POSTS * POST_SPACING;
+  fenceMeshes.forEach(({ post, rail }) => {
+    post.position.z += move;
+    rail.position.z += move;
+    if (post.position.z > POST_SPACING) {
+      post.position.z -= totalP;
+      rail.position.z -= totalP;
+    }
+  });
+}
+
+// Crash animation: horse tips sideways
+function updateCrash(dt) {
+  if (!gameOver) return;
+  crashAnim += dt;
+  if (crashAnim > 1.8) return;
+  horseGroup.rotation.z = Math.min(Math.PI * 0.45, horseGroup.rotation.z + dt * 1.8);
+  horseGroup.position.x -= dt * 0.8;
+  horseGroup.position.y = Math.max(-0.4, horseGroup.position.y - dt * 0.5);
+}
+
+// ─── MAIN LOOP ───────────────────────────────────────────────────────────────
+let lastT = performance.now();
+
+function animate() {
+  requestAnimationFrame(animate);
+  const now = performance.now();
+  const dt  = Math.min((now - lastT) / 1000, 0.05);
+  lastT = now;
+
+  if (gameActive) {
+    updatePhysics(dt);
+    updateAnimation(dt);
+    updateObstacles(dt);
+    updateScrolling(dt);
+    if (++hudFrame % 5 === 0) updateHUD();
+  }
+  updateCrash(dt);
+
+  // Smooth camera follow of horse lateral position
+  const px = horseGroup.position.x;
+  camera.position.x += (12 + px * 0.35 - camera.position.x) * 0.07;
+  camTargetX += (px * 0.28 - camTargetX) * 0.07;
+  camera.lookAt(camTargetX, 2, -8);
+
+  renderer.render(scene, camera);
+}
+
+// ─── RESIZE ──────────────────────────────────────────────────────────────────
+function onResize() {
+  const w = window.innerWidth, h = window.innerHeight;
+  renderer.setSize(w, h);
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
+}
+window.addEventListener('resize', onResize);
+onResize();
+
+// ─── BUTTONS ─────────────────────────────────────────────────────────────────
+document.getElementById('startBtn').addEventListener('click', () => { initAudio(); startGame(); });
+document.getElementById('restartBtn').addEventListener('click', () => {
+  initAudio();
+  document.getElementById('gameOverPanel').style.display = 'none';
+  document.getElementById('startPanel').style.display    = 'block';
+  startGame();
+});
+
+animate();
+</script>
+</body>
+</html>
