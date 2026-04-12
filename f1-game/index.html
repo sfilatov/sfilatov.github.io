@@ -144,7 +144,7 @@
 </head>
 <body>
 
-<div id="version">v1.0.6</div>
+<div id="version">v1.0.7</div>
 
 <!-- ── Start overlay ── -->
 <div id="overlay">
@@ -314,8 +314,8 @@ function ribbonMesh(pts, normals, halfW, color, yOff) {
 scene.add(ribbonMesh(tPts, tNormals, TRACK_W / 2,        0x2a2a2a, 0.02));
 // White kerb strip (just inside the asphalt edge)
 scene.add(ribbonMesh(tPts, tNormals, TRACK_W / 2 - 0.1,  0xffffff, 0.025));
-// Inner asphalt (overpaints all but the kerb strip)
-scene.add(ribbonMesh(tPts, tNormals, TRACK_W / 2 - 5.5,  0x2a2a2a, 0.03));
+// Inner asphalt (overpaints all but the white edge)
+scene.add(ribbonMesh(tPts, tNormals, TRACK_W / 2 - 1.4,  0x2a2a2a, 0.03));
 // Yellow centre line
 scene.add(ribbonMesh(tPts, tNormals, 0.22,               0xffe040, 0.04));
 
@@ -617,7 +617,7 @@ const DRAG     = 0.0045;
 const TURN     = 0.026;
 
 // ── Collision & Explosion system ────────────────────────────────────
-const CRASH_HALF   = TRACK_W / 2 - 0.5;
+const CRASH_HALF   = TRACK_W / 2 + 5.5;
 let carTrackIdx    = 0;
 let carCrashed     = false;
 let explosionTimer = 0;
