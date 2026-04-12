@@ -144,7 +144,7 @@
 </head>
 <body>
 
-<div id="version">v1.0.7</div>
+<div id="version">v1.0.8</div>
 
 <!-- ── Start overlay ── -->
 <div id="overlay">
@@ -409,6 +409,142 @@ const WHITE  = 0xffffff;
 
 function mat(col) { return new THREE.MeshLambertMaterial({ color: col }); }
 
+// ── Car Y constant used everywhere the car sits on the ground ────────
+const CAR_Y = 0.15;
+
+function buildCarSprite() {
+  const W = 256, H = 512;
+  const cv = document.createElement('canvas');
+  cv.width = W; cv.height = H;
+  const ctx = cv.getContext('2d');
+  const cx = W / 2;
+
+  // Cross-browser rounded rect fill
+  function rr(x, y, w, h, r) {
+    r = Math.min(r, w / 2, h / 2);
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.lineTo(x + w - r, y);
+    ctx.arcTo(x + w, y, x + w, y + r, r);
+    ctx.lineTo(x + w, y + h - r);
+    ctx.arcTo(x + w, y + h, x + w - r, y + h, r);
+    ctx.lineTo(x + r, y + h);
+    ctx.arcTo(x, y + h, x, y + h - r, r);
+    ctx.lineTo(x, y + r);
+    ctx.arcTo(x, y, x + r, y, r);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  // y=0 = REAR, y=512 = FRONT (nose). Matches PlaneGeometry with rotation.x=-PI/2.
+
+  // Drop shadow
+  ctx.fillStyle = 'rgba(0,0,0,0.35)';
+  rr(cx - 60 + 6, 40 + 6, 120, 420, 20);
+
+  // ── Rear wing ───────────────────────────────────────────────────────
+  ctx.fillStyle = '#dd2020';
+  rr(cx - 96, 16, 192, 22, 4);   // upper plane
+  rr(cx - 84, 36, 168, 14, 3);   // lower plane
+  // Endplates
+  ctx.fillStyle = '#191919';
+  rr(cx - 100, 12, 14, 36, 3);
+  rr(cx + 86,  12, 14, 36, 3);
+
+  // ── Floor / base layer ──────────────────────────────────────────────
+  ctx.fillStyle = '#111111';
+  rr(cx - 54, 42, 108, 430, 20);
+
+  // ── Sidepods ────────────────────────────────────────────────────────
+  ctx.fillStyle = '#cc1212';
+  rr(cx - 90, 100, 38, 170, 8);
+  rr(cx + 52,  100, 38, 170, 8);
+  // Intake scoops (dark)
+  ctx.fillStyle = '#0a0a0a';
+  rr(cx - 86, 165, 10, 30, 3);
+  rr(cx + 76, 165, 10, 30, 3);
+
+  // ── Top body ────────────────────────────────────────────────────────
+  ctx.fillStyle = '#ee2020';
+  rr(cx - 44, 55, 88, 400, 22);
+
+  // Engine cover highlight
+  ctx.fillStyle = '#cc0000';
+  rr(cx - 28, 75, 56, 320, 12);
+
+  // ── Wheels ──────────────────────────────────────────────────────────
+  function wheel(wx, wy) {
+    ctx.fillStyle = '#1a1a1a';
+    rr(wx - 22, wy - 44, 44, 88, 7);   // tyre
+    ctx.fillStyle = '#888888';
+    rr(wx - 15, wy - 30, 30, 60, 5);   // rim
+    ctx.fillStyle = '#444444';
+    rr(wx - 5,  wy - 10, 10, 20, 3);   // centre
+  }
+  wheel(cx - 80, 110);  // rear-left
+  wheel(cx + 80, 110);  // rear-right
+  wheel(cx - 80, 400);  // front-left
+  wheel(cx + 80, 400);  // front-right
+
+  // ── Cockpit opening ─────────────────────────────────────────────────
+  ctx.fillStyle = '#080808';
+  rr(cx - 22, 195, 44, 95, 12);
+
+  // ── Halo ────────────────────────────────────────────────────────────
+  ctx.strokeStyle = '#cccccc';
+  ctx.lineWidth = 5;
+  ctx.beginPath();
+  ctx.ellipse(cx, 242, 26, 12, 0, Math.PI, 0);
+  ctx.stroke();
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.moveTo(cx, 230);
+  ctx.lineTo(cx, 270);
+  ctx.stroke();
+
+  // ── Front wing ──────────────────────────────────────────────────────
+  ctx.fillStyle = '#dd2020';
+  rr(cx - 112, 432, 224, 20, 4);  // main plane
+  rr(cx - 94,  450, 188, 13, 3);  // second element
+  // Endplates
+  ctx.fillStyle = '#191919';
+  rr(cx - 116, 428, 14, 36, 3);
+  rr(cx + 102, 428, 14, 36, 3);
+
+  // ── Nose ────────────────────────────────────────────────────────────
+  ctx.fillStyle = '#dd2020';
+  rr(cx - 20, 430, 40, 68, 8);
+  // Nose tip
+  ctx.fillStyle = '#cc1818';
+  ctx.beginPath();
+  ctx.moveTo(cx - 10, 494);
+  ctx.lineTo(cx + 10, 494);
+  ctx.lineTo(cx, 510);
+  ctx.closePath();
+  ctx.fill();
+
+  // ── White centre stripe ─────────────────────────────────────────────
+  ctx.fillStyle = 'rgba(255,255,255,0.7)';
+  rr(cx - 3, 85, 6, 325, 2);
+
+  const tex = new THREE.CanvasTexture(cv);
+  const spriteMat = new THREE.MeshBasicMaterial({ map: tex, transparent: true, alphaTest: 0.05 });
+
+  // Plane lies flat; local +Y → world -Z, so canvas bottom (y=H) → car FRONT (+Z). ✓
+  const plane = new THREE.Mesh(new THREE.PlaneGeometry(2.8, 5.5), spriteMat);
+  plane.rotation.x = -Math.PI / 2;
+  // Offset plane forward inside group so the sprite's visual midpoint aligns
+  // with the car pivot (3D car spans z=-2.15..+3.05, midpoint ≈ +0.45 forward).
+  // In the group's local space +Z is car-forward; plane local -Y → world +Z after rotation.
+  // Shift plane.position.z = +0.45 so its visual centre lines up with the group origin.
+  plane.position.z = 0.45;
+
+  const group = new THREE.Group();
+  group.add(plane);
+  return group;
+}
+
+// ── Legacy helpers kept for nothing now; car is sprite-based ─────────
 function buildF1Car() {
   const car = new THREE.Group();
 
@@ -556,13 +692,13 @@ function buildF1Car() {
   return { car, wheels, frontWheels };
 }
 
-const { car: carMesh, wheels: carWheels, frontWheels } = buildF1Car();
+const carMesh = buildCarSprite();
 
 // Place car at track start, facing along the track
 const startPos = trackCurve.getPointAt(0);
 const startTan = trackCurve.getTangentAt(0);
 let carAngle = Math.atan2(startTan.x, startTan.z);
-carMesh.position.set(startPos.x, 0.1, startPos.z);
+carMesh.position.set(startPos.x, CAR_Y, startPos.z);
 carMesh.rotation.y = carAngle;
 scene.add(carMesh);
 
@@ -783,7 +919,7 @@ function restartCar() {
 
   const spawnIdx = isGameOver ? 0 : crashTrackIdx;
   const sp = tPts[spawnIdx];
-  carMesh.position.set(sp.x, 0.1, sp.z);
+  carMesh.position.set(sp.x, CAR_Y, sp.z);
   carAngle = Math.atan2(tTangents[spawnIdx].x, tTangents[spawnIdx].z);
   carMesh.rotation.y = carAngle;
   carSpeed = 0;
@@ -851,13 +987,7 @@ function updateCar() {
   carMesh.position.x += Math.sin(carAngle) * carSpeed;
   carMesh.position.z += Math.cos(carAngle) * carSpeed;
 
-  // Wheel spin
-  const spinDelta = carSpeed * 3;
-  carWheels.forEach(w => { w.spin.rotation.x -= spinDelta; });
-
-  // Front wheel steer visual
-  const steerAngle = left ? 0.36 : right ? -0.36 : 0;
-  frontWheels.forEach(w => { w.rotation.y = steerAngle; });
+  // (wheel spin and steer visuals removed — car is now a flat sprite)
 
   checkCollision();
 }
@@ -881,7 +1011,7 @@ function updateCamera() {
 
   const lookTarget = new THREE.Vector3(
     carMesh.position.x + sinA * 4,
-    carMesh.position.y + 1.4,
+    carMesh.position.y + 0.5,
     carMesh.position.z + cosA * 4
   );
   camLookAt.lerp(lookTarget, CAM_LERP * 1.8);
