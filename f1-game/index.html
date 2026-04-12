@@ -34,6 +34,12 @@
       display: none; position: absolute; bottom: 24px; right: 24px;
       color: #fff; text-align: right; pointer-events: none; user-select: none;
     }
+    #livesRow {
+      font-size: 28px; line-height: 1; margin-bottom: 6px;
+      letter-spacing: 6px;
+    }
+    .life-full  { color: #FF1801; text-shadow: 0 0 8px #FF1801aa; }
+    .life-empty { color: #333; }
     #gearNum {
       font-size: 80px; line-height: 1; font-weight: 900; color: #FF4444;
       text-shadow: 0 0 20px #FF4444cc;
@@ -71,6 +77,14 @@
       text-shadow: 0 0 12px #ffffffaa;
     }
 
+    /* ── Version label ── */
+    #version {
+      position: absolute; top: 14px; left: 18px;
+      color: rgba(255,255,255,.3); font-size: 11px;
+      pointer-events: none; user-select: none; z-index: 7;
+      letter-spacing: 1px;
+    }
+
     /* ── Controls hint ── */
     #hint {
       display: none; position: absolute; bottom: 24px; left: 24px;
@@ -81,20 +95,68 @@
       border: 1px solid rgba(255,255,255,.3); border-radius: 3px;
       padding: 1px 6px; margin: 1px;
     }
+
+    /* ── Portrait-mode prompt (touch devices only) ── */
+    #rotatePrompt {
+      display: none;
+      position: absolute; inset: 0;
+      background: rgba(0,0,0,.95); color: #fff; z-index: 20;
+      flex-direction: column; align-items: center; justify-content: center;
+      gap: 14px; pointer-events: none;
+    }
+    @media (orientation: portrait) {
+      body.touch #rotatePrompt { display: flex; }
+    }
+
+    /* ── Mobile touch controls ── */
+    #mobileControls {
+      display: none;
+      position: absolute; inset: 0;
+      pointer-events: none; z-index: 8;
+    }
+    .ctrl-zone {
+      position: absolute; bottom: 24px;
+      display: flex; gap: 12px;
+      pointer-events: auto;
+    }
+    .ctrl-zone-left  { left: 24px;  flex-direction: column; align-items: center; }
+    .ctrl-zone-right { right: 24px; flex-direction: row;    align-items: center; }
+    .ctrl-btn {
+      width: 80px; height: 80px;
+      background: rgba(255,255,255,.12);
+      border: 2px solid rgba(255,255,255,.35);
+      border-radius: 14px;
+      color: #fff; font-size: 32px;
+      display: flex; align-items: center; justify-content: center;
+      user-select: none; -webkit-user-select: none;
+      touch-action: none; cursor: pointer;
+      transition: background .08s, border-color .08s;
+    }
+    .ctrl-btn.active {
+      background: rgba(255,24,1,.45);
+      border-color: #FF1801;
+    }
+
+    /* On touch devices: lift HUD above controls, hide keyboard hint */
+    body.touch #hud  { bottom: 120px; }
+    body.touch #hint { display: none !important; }
   </style>
 </head>
 <body>
+
+<div id="version">v1.0.0</div>
 
 <!-- ── Start overlay ── -->
 <div id="overlay">
   <h1>F1 RACE</h1>
   <p>START YOUR ENGINES</p>
   <button id="startBtn">&#9654; DRIVE</button>
-  <small>WASD / Arrow Keys &nbsp;·&nbsp; Requires click to unlock audio</small>
+  <small id="overlayHint">WASD / Arrow Keys &nbsp;·&nbsp; Requires click to unlock audio</small>
 </div>
 
 <!-- ── HUD ── -->
 <div id="hud">
+  <div id="livesRow"></div>
   <div id="gearNum">1</div>
   <div id="speedNum">0</div>
   <div id="speedUnit">KM/H</div>
@@ -106,7 +168,7 @@
 <div id="crashFlash"></div>
 <div id="crashMsg">
   <div class="crash-title">DESTROYED!</div>
-  <div class="crash-sub">PRESS ENTER TO RESTART</div>
+  <div class="crash-sub" id="crashSub">PRESS ENTER TO RESTART</div>
 </div>
 
 <!-- ── Controls hint ── -->
@@ -114,6 +176,25 @@
   <span class="k">W</span>/<span class="k">↑</span> Accelerate<br>
   <span class="k">S</span>/<span class="k">↓</span> Brake / Reverse<br>
   <span class="k">A</span>/<span class="k">←</span> <span class="k">D</span>/<span class="k">→</span> Steer
+</div>
+
+<!-- ── Portrait-mode prompt ── -->
+<div id="rotatePrompt">
+  <div style="font-size:72px;line-height:1;">&#8635;</div>
+  <div style="font-size:20px;letter-spacing:4px;font-weight:700;">ROTATE DEVICE</div>
+  <div style="font-size:13px;color:#777;letter-spacing:2px;">Landscape mode required</div>
+</div>
+
+<!-- ── Mobile touch controls ── -->
+<div id="mobileControls">
+  <div class="ctrl-zone ctrl-zone-left">
+    <button class="ctrl-btn" id="btnFwd">&#9650;</button>
+    <button class="ctrl-btn" id="btnBwd">&#9660;</button>
+  </div>
+  <div class="ctrl-zone ctrl-zone-right">
+    <button class="ctrl-btn" id="btnLft">&#9664;</button>
+    <button class="ctrl-btn" id="btnRgt">&#9654;</button>
+  </div>
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r134/three.min.js"></script>
@@ -499,9 +580,28 @@ const BLOCKED = new Set(['KeyW','KeyA','KeyS','KeyD','ArrowUp','ArrowDown','Arro
 document.addEventListener('keydown', e => {
   keys[e.code] = true;
   if (BLOCKED.has(e.code)) e.preventDefault();
-  if (e.code === 'Enter' && carCrashed) restartCar();
+  if ((e.code === 'Enter' || e.code === 'Space') && carCrashed) restartCar();
 });
 document.addEventListener('keyup',   e => { keys[e.code] = false; });
+
+// ── Mobile touch controls ──
+function bindCtrl(id, code) {
+  const el = document.getElementById(id);
+  const on  = e => { e.preventDefault(); keys[code] = true;  el.classList.add('active'); };
+  const off = e => { e.preventDefault(); keys[code] = false; el.classList.remove('active'); };
+  el.addEventListener('touchstart',  on,  { passive: false });
+  el.addEventListener('touchend',    off, { passive: false });
+  el.addEventListener('touchcancel', off, { passive: false });
+}
+bindCtrl('btnFwd', 'KeyW');
+bindCtrl('btnBwd', 'KeyS');
+bindCtrl('btnLft', 'KeyA');
+bindCtrl('btnRgt', 'KeyD');
+
+document.getElementById('crashMsg').addEventListener('touchstart', e => {
+  e.preventDefault();
+  if (carCrashed) restartCar();
+}, { passive: false });
 
 // ═══════════════════════════════════════════════════════════════════
 //  CAR PHYSICS STATE
@@ -523,6 +623,18 @@ const debrisPieces = [];
 const firePieces   = [];
 const crashFlashEl = document.getElementById('crashFlash');
 const crashMsgEl   = document.getElementById('crashMsg');
+const crashTitleEl = crashMsgEl.querySelector('.crash-title');
+const livesRowEl   = document.getElementById('livesRow');
+
+const MAX_LIVES = 3;
+let lives = MAX_LIVES;
+let crashTrackIdx = 0;
+
+function renderLives() {
+  livesRowEl.innerHTML = Array.from({ length: MAX_LIVES }, (_, i) =>
+    `<span class="${i < lives ? 'life-full' : 'life-empty'}">&#9829;</span>`
+  ).join('');
+}
 
 function findNearestTrackIdx() {
   const cx = carMesh.position.x, cz = carMesh.position.z;
@@ -556,6 +668,20 @@ function spawnExplosion() {
   explosionTimer = 220;
   stopEngineAudio();
   playCrashSound();
+
+  lives = Math.max(lives - 1, 0);
+  renderLives();
+  crashTrackIdx = carTrackIdx;
+
+  if (lives === 0) {
+    crashTitleEl.textContent = 'WASTED';
+    document.getElementById('crashSub').textContent =
+      isTouchDevice ? 'YOU LOST!  TAP TO PLAY AGAIN' : 'YOU LOST!  PRESS ENTER TO PLAY AGAIN';
+  } else {
+    crashTitleEl.textContent = 'DESTROYED!';
+    document.getElementById('crashSub').textContent =
+      isTouchDevice ? 'TAP SCREEN TO CONTINUE' : 'PRESS ENTER OR SPACE TO CONTINUE';
+  }
 
   const cx = carMesh.position.x, cz = carMesh.position.z;
 
@@ -647,14 +773,21 @@ function restartCar() {
   debrisPieces.length = 0;
   firePieces.length   = 0;
 
-  const sp = tPts[0];
+  const isGameOver = lives === 0;
+  if (isGameOver) {
+    lives = MAX_LIVES;
+    renderLives();
+  }
+
+  const spawnIdx = isGameOver ? 0 : crashTrackIdx;
+  const sp = tPts[spawnIdx];
   carMesh.position.set(sp.x, 0.1, sp.z);
-  carAngle = Math.atan2(tTangents[0].x, tTangents[0].z);
+  carAngle = Math.atan2(tTangents[spawnIdx].x, tTangents[spawnIdx].z);
   carMesh.rotation.y = carAngle;
   carSpeed = 0;
   carMesh.visible = true;
   carCrashed  = false;
-  carTrackIdx = 0;
+  carTrackIdx = spawnIdx;
 
   // Restore engine audio volume
   if (audioCtx) {
@@ -960,14 +1093,26 @@ function updateHUD() {
 // ═══════════════════════════════════════════════════════════════════
 //  GAME STATE
 // ═══════════════════════════════════════════════════════════════════
+const isTouchDevice = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
+if (isTouchDevice) {
+  document.body.classList.add('touch');
+  document.getElementById('overlayHint').textContent = 'Touch controls · Tap to unlock audio';
+}
+
 let gameActive = false;
 
 document.getElementById('startBtn').addEventListener('click', () => {
   gameActive = true;
   initAudio();
+  lives = MAX_LIVES;
+  renderLives();
   document.getElementById('overlay').style.display = 'none';
   document.getElementById('hud').style.display     = 'block';
-  document.getElementById('hint').style.display    = 'block';
+  if (isTouchDevice) {
+    document.getElementById('mobileControls').style.display = 'block';
+  } else {
+    document.getElementById('hint').style.display = 'block';
+  }
 });
 
 // ═══════════════════════════════════════════════════════════════════
