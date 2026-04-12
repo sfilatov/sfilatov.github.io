@@ -144,7 +144,7 @@
 </head>
 <body>
 
-<div id="version">v1.0.5</div>
+<div id="version">v1.0.6</div>
 
 <!-- ── Start overlay ── -->
 <div id="overlay">
@@ -315,7 +315,7 @@ scene.add(ribbonMesh(tPts, tNormals, TRACK_W / 2,        0x2a2a2a, 0.02));
 // White kerb strip (just inside the asphalt edge)
 scene.add(ribbonMesh(tPts, tNormals, TRACK_W / 2 - 0.1,  0xffffff, 0.025));
 // Inner asphalt (overpaints all but the kerb strip)
-scene.add(ribbonMesh(tPts, tNormals, TRACK_W / 2 - 3.0,  0x2a2a2a, 0.03));
+scene.add(ribbonMesh(tPts, tNormals, TRACK_W / 2 - 5.5,  0x2a2a2a, 0.03));
 // Yellow centre line
 scene.add(ribbonMesh(tPts, tNormals, 0.22,               0xffe040, 0.04));
 
@@ -331,7 +331,7 @@ scene.add(ribbonMesh(tPts, tNormals, 0.22,               0xffe040, 0.04));
       const p   = tPts[i];
       const nor = tNormals[i];
       const tan = tTangents[i];
-      const pos = p.clone().addScaledVector(nor, side * (TRACK_W / 2 + 3.0));
+      const pos = p.clone().addScaledVector(nor, side * (TRACK_W / 2 + 6.0));
       const m   = new THREE.Mesh(geo, mats[Math.floor(i / STEP) % 2]);
       m.position.set(pos.x, 0.45, pos.z);
       m.lookAt(pos.x + tan.x, 0.45, pos.z + tan.z);
