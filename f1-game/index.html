@@ -144,7 +144,7 @@
 </head>
 <body>
 
-<div id="version">v1.0.0</div>
+<div id="version">v1.0.3</div>
 
 <!-- ── Start overlay ── -->
 <div id="overlay">
@@ -167,7 +167,7 @@
 <!-- ── Crash effects ── -->
 <div id="crashFlash"></div>
 <div id="crashMsg">
-  <div class="crash-title">DESTROYED!</div>
+  <div class="crash-title">CRASHED!</div>
   <div class="crash-sub" id="crashSub">PRESS ENTER TO RESTART</div>
 </div>
 
@@ -587,7 +587,13 @@ document.addEventListener('keyup',   e => { keys[e.code] = false; });
 // ── Mobile touch controls ──
 function bindCtrl(id, code) {
   const el = document.getElementById(id);
-  const on  = e => { e.preventDefault(); keys[code] = true;  el.classList.add('active'); };
+  const on  = e => {
+    e.preventDefault();
+    if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+    if (carCrashed) { restartCar(); return; }
+    keys[code] = true;
+    el.classList.add('active');
+  };
   const off = e => { e.preventDefault(); keys[code] = false; el.classList.remove('active'); };
   el.addEventListener('touchstart',  on,  { passive: false });
   el.addEventListener('touchend',    off, { passive: false });
@@ -598,10 +604,6 @@ bindCtrl('btnBwd', 'KeyS');
 bindCtrl('btnLft', 'KeyA');
 bindCtrl('btnRgt', 'KeyD');
 
-document.getElementById('crashMsg').addEventListener('touchstart', e => {
-  e.preventDefault();
-  if (carCrashed) restartCar();
-}, { passive: false });
 
 // ═══════════════════════════════════════════════════════════════════
 //  CAR PHYSICS STATE
@@ -676,11 +678,11 @@ function spawnExplosion() {
   if (lives === 0) {
     crashTitleEl.textContent = 'WASTED';
     document.getElementById('crashSub').textContent =
-      isTouchDevice ? 'YOU LOST!  TAP TO PLAY AGAIN' : 'YOU LOST!  PRESS ENTER TO PLAY AGAIN';
+      isTouchDevice ? 'YOU LOST!  PRESS ANY BUTTON TO PLAY AGAIN' : 'YOU LOST!  PRESS ENTER TO PLAY AGAIN';
   } else {
-    crashTitleEl.textContent = 'DESTROYED!';
+    crashTitleEl.textContent = 'CRASHED!';
     document.getElementById('crashSub').textContent =
-      isTouchDevice ? 'TAP SCREEN TO CONTINUE' : 'PRESS ENTER OR SPACE TO CONTINUE';
+      isTouchDevice ? 'PRESS ANY BUTTON TO CONTINUE' : 'PRESS ENTER OR SPACE TO CONTINUE';
   }
 
   const cx = carMesh.position.x, cz = carMesh.position.z;
@@ -895,8 +897,14 @@ let masterGain = null, noiseGain = null, filter = null;
 let windRushGain = null, windLFODepth = null;
 
 function initAudio() {
-  if (audioCtx) return;
+  if (audioCtx) {
+    // iOS may have suspended the context after creation — resume it
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    return;
+  }
   audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  // iOS Safari starts AudioContext suspended; resume must happen in user gesture
+  audioCtx.resume();
 
   masterGain = audioCtx.createGain();
   masterGain.gain.value = 0.001;
