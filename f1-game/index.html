@@ -915,7 +915,36 @@ function crashBot(bot) {
   }
 }
 
-const BOT_COLLISION_R2 = 16; // 4-unit radius squared (player ↔ bot / bot ↔ bot)
+const BOT_COLLISION_R2 = 9; // 3-unit radius — avoidance handles most near-misses
+
+// Returns laneNudge (lateral push away from nearby cars) and speedFactor (braking).
+function computeAvoidance(bot, tan, nor) {
+  let laneNudge   = 0;
+  let speedFactor = 1.0;
+
+  const check = (oPos) => {
+    const dx = oPos.x - bot.mesh.position.x;
+    const dz = oPos.z - bot.mesh.position.z;
+    const dist2 = dx * dx + dz * dz;
+    if (dist2 > 100) return;
+    const ahead   = dx * tan.x + dz * tan.z;
+    const lateral = dx * nor.x + dz * nor.z;
+    if (ahead > -4) {
+      laneNudge += (lateral > 0 ? -1 : 1) * (1 - dist2 / 100) * 0.14;
+      if (ahead > 0 && Math.abs(lateral) < 3.5) {
+        const prox = 1 - Math.sqrt(dist2) / 10;
+        speedFactor = Math.min(speedFactor, 1 - prox * 0.45);
+      }
+    }
+  };
+
+  for (const other of bots) {
+    if (other !== bot && !other.crashed) check(other.mesh.position);
+  }
+  if (!carCrashed) check(carMesh.position);
+
+  return { laneNudge, speedFactor };
+}
 
 function updateBots() {
   if (!tPts.length) return;
@@ -923,7 +952,7 @@ function updateBots() {
   const inv = 1 / (trackSampleDist || 1);
 
   for (const bot of bots) {
-    // ── Crash cooldown + debris ───────────────────────────────────────
+    // Crash cooldown + debris
     if (bot.crashed) {
       bot.crashTimer--;
       for (const d of bot.debris) {
@@ -933,17 +962,17 @@ function updateBots() {
         d.mesh.rotation.x += d.rx; d.mesh.rotation.y += d.ry; d.mesh.rotation.z += d.rz;
       }
       if (bot.crashTimer <= 0) {
-        // Respawn well behind current field
         for (const d of bot.debris) scene.remove(d.mesh);
         bot.debris.length = 0;
         bot.trackIdx  = (carTrackIdx - 120 + N) % N;
+        bot.activeLane = bot.laneOff;
         bot.crashed   = false;
         bot.mesh.visible = true;
       }
       continue;
     }
 
-    // ── Oscillating speed (simulates corners / straights) ────────────
+    // Oscillating speed (simulates corners / straights)
     bot.currentSpeed = bot.baseSpeed + bot.amp * Math.sin(bot.trackIdx * bot.freq + bot.phase);
     bot.trackIdx = (bot.trackIdx + bot.currentSpeed * inv) % N;
 
@@ -954,40 +983,19 @@ function updateBots() {
     const nor = new THREE.Vector3().lerpVectors(tNormals[i0], tNormals[i1], t).normalize();
     const tan = new THREE.Vector3().lerpVectors(tTangents[i0], tTangents[i1], t).normalize();
 
-    // ── Avoidance steering ────────────────────────────────────────────
-    const WARN_R = 8, WARN_R2 = WARN_R * WARN_R;
-    let avoidLateral = 0, speedScale = 1.0;
+    // Avoidance: steer away from nearby cars, brake if blocked ahead
+    const { laneNudge, speedFactor } = computeAvoidance(bot, tan, nor);
+    const targetLane = bot.laneOff + Math.sin(bot.trackIdx * bot.freq * 0.5 + bot.phase) * 1.2;
+    bot.activeLane  += (targetLane - bot.activeLane) * 0.05 + laneNudge;
+    bot.activeLane   = Math.max(-(TRACK_W / 2 - 2), Math.min(TRACK_W / 2 - 2, bot.activeLane));
+    bot.currentSpeed *= speedFactor;
 
-    const otherCars = [...bots.filter(b => b !== bot && !b.crashed),
-                       ...(!carCrashed ? [{ mesh: carMesh }] : [])];
-    for (const other of otherCars) {
-      const dx = other.mesh.position.x - bot.mesh.position.x;
-      const dz = other.mesh.position.z - bot.mesh.position.z;
-      const d2 = dx * dx + dz * dz;
-      if (d2 < WARN_R2 && d2 > 0.01) {
-        const d    = Math.sqrt(d2);
-        const str  = 1 - d / WARN_R;                      // 0..1 stronger when closer
-        const lat  = dx * nor.x + dz * nor.z;             // +ve = other is to my right
-        const fwd  = dx * tan.x + dz * tan.z;             // +ve = other is ahead
-        avoidLateral -= Math.sign(lat) * str * 5.0;       // steer away laterally
-        if (fwd > 0 && d < 6) speedScale = Math.min(speedScale, 0.35 + 0.65 * (d / 6));
-      }
-    }
-
-    // Desired lane = base + sinusoidal drift + avoidance push (clamped inside track)
-    const drift       = Math.sin(bot.trackIdx * bot.freq * 0.5 + bot.phase) * 1.2;
-    const desiredLane = Math.max(-9, Math.min(9,
-      bot.laneOff + drift + Math.max(-5, Math.min(5, avoidLateral))
-    ));
-    bot.activeLane += (desiredLane - bot.activeLane) * 0.05;
-
-    const adjustedSpeed = bot.currentSpeed * speedScale;
     bot.mesh.position.set(p.x + nor.x * bot.activeLane, CAR_Y, p.z + nor.z * bot.activeLane);
     bot.mesh.rotation.y = Math.atan2(tan.x, tan.z);
-    for (const w of bot.botWheels) w.rotation.x -= adjustedSpeed * 3.5;
+    for (const w of bot.botWheels) w.rotation.x -= bot.currentSpeed * 3.5;
   }
 
-  // ── Bot ↔ bot collisions ──────────────────────────────────────────
+  // Bot <-> bot collisions (fallback if avoidance fails)
   for (let i = 0; i < bots.length; i++) {
     if (bots[i].crashed) continue;
     for (let j = i + 1; j < bots.length; j++) {
