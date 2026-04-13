@@ -658,6 +658,8 @@ function buildF1Car() {
 
   // Nose
   box(0.52, 0.11, 1.25, RED,     0,  0.24,  2.15);
+  // Ferrari yellow nose number plate
+  box(0.38, 0.04, 0.55, GOLD,    0,  0.305, 2.38);
   const noseTip = new THREE.Mesh(new THREE.ConeGeometry(0.11, 0.55, 4), mat(RED));
   noseTip.rotation.x = Math.PI / 2;
   noseTip.position.set(0, 0.24, 3.05);
@@ -673,8 +675,8 @@ function buildF1Car() {
   box(0.04, 0.3,  0.04, SILVER,  0.31, 0.74, 0.0);
   box(0.66, 0.04, 0.04, SILVER,  0,    0.90, 0.08);
 
-  // Driver helmet
-  const helm = new THREE.Mesh(new THREE.SphereGeometry(0.2, 12, 8), mat(RED));
+  // Driver helmet — Ferrari yellow (Leclerc 2024 helmet)
+  const helm = new THREE.Mesh(new THREE.SphereGeometry(0.2, 12, 8), mat(GOLD));
   helm.position.set(0, 0.76, 0.27);
   helm.scale.set(1, 0.96, 1.1);
   helm.castShadow = true;
@@ -693,6 +695,9 @@ function buildF1Car() {
   box(0.28, 0.20, 1.25, RED,   0.84, 0.32,  0.1);
   box(0.08, 0.14, 0.08, DARK, -0.95, 0.37,  0.72); // inlet L
   box(0.08, 0.14, 0.08, DARK,  0.95, 0.37,  0.72); // inlet R
+  // Ferrari SF yellow sidepod stripe
+  box(0.30, 0.04, 0.80, GOLD, -0.84, 0.43,  0.0);
+  box(0.30, 0.04, 0.80, GOLD,  0.84, 0.43,  0.0);
 
   // ── Floor / diffuser ──────────────────────────────────────────────
   box(1.48, 0.05, 3.6,  DARK,    0, 0.15,  0);
@@ -1466,7 +1471,7 @@ const GEAR_RATIOS = [0, 0.11, 0.24, 0.40, 0.58, 0.77, 1.0];
 
 function updateHUD() {
   const r      = Math.abs(carSpeed) / MAX_FWD;
-  const kmh    = Math.round(r * 295);
+  const kmh    = Math.round(r * 100);
   elSpeed.textContent = kmh;
 
   let gear = 1;
