@@ -823,9 +823,9 @@ function buildF1Car() {
 
 const { car: carMesh, wheels: carWheels } = buildF1Car();
 
-// Place car at track start, facing along the track
+// Place car at track start on P1 grid slot (left of center)
 let carAngle = Math.atan2(tTangents[0].x, tTangents[0].z);
-carMesh.position.set(tPts[0].x, CAR_Y, tPts[0].z);
+carMesh.position.set(tPts[0].x + tNormals[0].x * GRID_LANES[0], CAR_Y, tPts[0].z + tNormals[0].z * GRID_LANES[0]);
 carMesh.rotation.y = carAngle;
 scene.add(carMesh);
 
@@ -899,6 +899,19 @@ const bots = BOT_CONFIGS.map(cfg => {
   };
 });
 
+// ── Starting grid config ───────────────────────────────────────────
+// P1 pole (player) on left; bots stagger right/left every row behind.
+const GRID_SPACING = 12;   // samples between grid rows
+const GRID_LANES   = [-2.5, 3.5, -3.5, 3.5, -3.5]; // [P1, P2, P3, P4, P5]
+
+function gridPosition(sampleIdx) {
+  // Returns {x, z, angle} on track centerline at given sample index
+  const N   = tPts.length;
+  const i0  = ((sampleIdx % N) + N) % N;
+  const pt  = tPts[i0], nor = tNormals[i0], tan = tTangents[i0];
+  return { pt, nor, tan };
+}
+
 function resetBots() {
   if (!tPts.length) return;
   trackSampleDist = tPts[0].distanceTo(tPts[1]);
@@ -910,13 +923,14 @@ function resetBots() {
     bot.debris.length = 0;
     bot.crashed    = false;
     bot.crashTimer = 0;
-    bot.activeLane = bot.laneOff;
+    // Grid row: bot[0]=P2, bot[1]=P3, bot[2]=P4, bot[3]=P5
+    const row      = i + 1;
+    const gridLane = GRID_LANES[row];
+    bot.activeLane = gridLane;
     bot.mesh.visible = true;
-    // Stagger bots behind the start line
-    bot.trackIdx = ((N - (i + 1) * 35) % N + N) % N;
-    const i0  = Math.floor(bot.trackIdx) % N;
-    const pt  = tPts[i0], nor = tNormals[i0], tan = tTangents[i0];
-    bot.mesh.position.set(pt.x + nor.x * bot.laneOff, CAR_Y, pt.z + nor.z * bot.laneOff);
+    bot.trackIdx = ((N - row * GRID_SPACING) % N + N) % N;
+    const { pt, nor, tan } = gridPosition(bot.trackIdx);
+    bot.mesh.position.set(pt.x + nor.x * gridLane, CAR_Y, pt.z + nor.z * gridLane);
     bot.mesh.rotation.y = Math.atan2(tan.x, tan.z);
   });
 }
@@ -1271,8 +1285,10 @@ function restartCar() {
   }
 
   const spawnIdx = isGameOver ? 0 : crashTrackIdx;
-  const sp = tPts[spawnIdx];
-  carMesh.position.set(sp.x, CAR_Y, sp.z);
+  const sp  = tPts[spawnIdx];
+  const snor = tNormals[spawnIdx];
+  const laneX = isGameOver ? GRID_LANES[0] : 0;
+  carMesh.position.set(sp.x + snor.x * laneX, CAR_Y, sp.z + snor.z * laneX);
   carAngle = Math.atan2(tTangents[spawnIdx].x, tTangents[spawnIdx].z);
   carMesh.rotation.y = carAngle;
   carSpeed = 0;
@@ -1374,8 +1390,8 @@ function updateCar() {
       trackIndex++;
       loadTrack(trackIndex);
       resetBots();
-      // Teleport car to new track start
-      carMesh.position.set(tPts[0].x, CAR_Y, tPts[0].z);
+      // Teleport car to new track P1 grid slot
+      carMesh.position.set(tPts[0].x + tNormals[0].x * GRID_LANES[0], CAR_Y, tPts[0].z + tNormals[0].z * GRID_LANES[0]);
       carAngle = Math.atan2(tTangents[0].x, tTangents[0].z);
       carMesh.rotation.y = carAngle;
       carSpeed = 0;
