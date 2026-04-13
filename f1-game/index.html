@@ -843,16 +843,28 @@ function buildBotCar(bodyCol) {
 }
 
 // Bot configuration: McLaren orange, Aston green, Williams blue, Mercedes silver
-const BOT_COLORS = [0xFF8700, 0x00594f, 0x005AFF, 0xaaaaaa];
-const BOT_SPEEDS = [0.84, 0.78, 0.91, 0.71]; // world units / frame (player MAX_FWD = 1.25)
-const BOT_LANES  = [-4.0, 3.5, -6.0, 5.0];  // lateral offset from centerline
+// baseSpeed: avg world-units/frame; amp: speed oscillation amplitude; freq/phase: oscillation shape
+const BOT_CONFIGS = [
+  { color: 0xFF8700, baseSpeed: 0.88, amp: 0.12, freq: 0.003, phase: 0.0, laneOff: -4.0 }, // McLaren – fast
+  { color: 0x00594f, baseSpeed: 0.58, amp: 0.06, freq: 0.006, phase: 1.2, laneOff:  3.5 }, // Aston   – slow & steady
+  { color: 0x005AFF, baseSpeed: 1.08, amp: 0.10, freq: 0.002, phase: 2.5, laneOff: -6.0 }, // Williams – fastest
+  { color: 0xaaaaaa, baseSpeed: 0.72, amp: 0.15, freq: 0.009, phase: 3.8, laneOff:  5.0 }, // Mercedes – erratic
+];
 
 let trackSampleDist = 1; // metres per track sample — recomputed on each loadTrack
 
-const bots = BOT_COLORS.map((col, i) => {
-  const { car: mesh, botWheels } = buildBotCar(col);
+const bots = BOT_CONFIGS.map(cfg => {
+  const { car: mesh, botWheels } = buildBotCar(cfg.color);
   scene.add(mesh);
-  return { mesh, botWheels, trackIdx: 0, worldSpeed: BOT_SPEEDS[i], laneOff: BOT_LANES[i] };
+  return {
+    mesh, botWheels,
+    trackIdx: 0,
+    baseSpeed: cfg.baseSpeed, amp: cfg.amp, freq: cfg.freq, phase: cfg.phase,
+    laneOff: cfg.laneOff,
+    currentSpeed: cfg.baseSpeed,
+    crashed: false, crashTimer: 0,
+    debris: [],
+  };
 });
 
 function resetBots() {
@@ -861,6 +873,12 @@ function resetBots() {
   if (trackSampleDist < 1e-4) trackSampleDist = 1;
   const N = tPts.length;
   bots.forEach((bot, i) => {
+    // Clear any existing debris
+    for (const d of bot.debris) scene.remove(d.mesh);
+    bot.debris.length = 0;
+    bot.crashed    = false;
+    bot.crashTimer = 0;
+    bot.mesh.visible = true;
     // Stagger bots behind the start line
     bot.trackIdx = ((N - (i + 1) * 35) % N + N) % N;
     const i0  = Math.floor(bot.trackIdx) % N;
@@ -870,21 +888,89 @@ function resetBots() {
   });
 }
 
+function crashBot(bot) {
+  if (bot.crashed) return;
+  bot.crashed    = true;
+  bot.crashTimer = 180; // ~3 s at 60 fps
+  bot.mesh.visible = false;
+  // Spawn debris
+  const cx = bot.mesh.position.x, cz = bot.mesh.position.z;
+  const COLS = [0xFF8700, 0x00594f, 0x005AFF, 0xaaaaaa, 0xFF1801, 0x111111, 0xFFD700];
+  for (let k = 0; k < 7; k++) {
+    const m = new THREE.Mesh(
+      new THREE.BoxGeometry(0.3 + Math.random() * 0.7, 0.1 + Math.random() * 0.3, 0.4 + Math.random() * 0.9),
+      new THREE.MeshLambertMaterial({ color: COLS[k % COLS.length] })
+    );
+    m.position.set(cx + (Math.random() - 0.5) * 2, 0.4, cz + (Math.random() - 0.5) * 2);
+    m.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, Math.random() * Math.PI);
+    const ang = Math.random() * Math.PI * 2, spd = 0.10 + Math.random() * 0.20;
+    bot.debris.push({
+      mesh: m,
+      vx: Math.cos(ang) * spd, vy: 0.12 + Math.random() * 0.18, vz: Math.sin(ang) * spd,
+      rx: (Math.random() - 0.5) * 0.18, ry: (Math.random() - 0.5) * 0.22, rz: (Math.random() - 0.5) * 0.18,
+    });
+    scene.add(m);
+  }
+}
+
+const BOT_COLLISION_R2 = 16; // 4-unit radius squared (player ↔ bot / bot ↔ bot)
+
 function updateBots() {
   if (!tPts.length) return;
   const N   = tPts.length;
   const inv = 1 / (trackSampleDist || 1);
+
   for (const bot of bots) {
-    bot.trackIdx = (bot.trackIdx + bot.worldSpeed * inv) % N;
+    // ── Crash cooldown + debris ───────────────────────────────────────
+    if (bot.crashed) {
+      bot.crashTimer--;
+      for (const d of bot.debris) {
+        d.vy -= 0.008;
+        d.mesh.position.x += d.vx; d.mesh.position.y += d.vy; d.mesh.position.z += d.vz;
+        if (d.mesh.position.y < 0.05) { d.mesh.position.y = 0.05; d.vy *= -0.25; d.vx *= 0.72; d.vz *= 0.72; }
+        d.mesh.rotation.x += d.rx; d.mesh.rotation.y += d.ry; d.mesh.rotation.z += d.rz;
+      }
+      if (bot.crashTimer <= 0) {
+        // Respawn well behind current field
+        for (const d of bot.debris) scene.remove(d.mesh);
+        bot.debris.length = 0;
+        bot.trackIdx  = (carTrackIdx - 120 + N) % N;
+        bot.crashed   = false;
+        bot.mesh.visible = true;
+      }
+      continue;
+    }
+
+    // ── Oscillating speed (simulates corners / straights) ────────────
+    bot.currentSpeed = bot.baseSpeed + bot.amp * Math.sin(bot.trackIdx * bot.freq + bot.phase);
+    bot.trackIdx = (bot.trackIdx + bot.currentSpeed * inv) % N;
+
     const i0 = Math.floor(bot.trackIdx);
     const i1 = (i0 + 1) % N;
     const t  = bot.trackIdx - i0;
     const p   = new THREE.Vector3().lerpVectors(tPts[i0],     tPts[i1],     t);
     const nor = new THREE.Vector3().lerpVectors(tNormals[i0], tNormals[i1], t).normalize();
     const tan = new THREE.Vector3().lerpVectors(tTangents[i0], tTangents[i1], t).normalize();
-    bot.mesh.position.set(p.x + nor.x * bot.laneOff, CAR_Y, p.z + nor.z * bot.laneOff);
+
+    // Slight lane drift unique to each bot
+    const lane = bot.laneOff + Math.sin(bot.trackIdx * bot.freq * 0.5 + bot.phase) * 1.2;
+    bot.mesh.position.set(p.x + nor.x * lane, CAR_Y, p.z + nor.z * lane);
     bot.mesh.rotation.y = Math.atan2(tan.x, tan.z);
-    for (const w of bot.botWheels) w.rotation.x -= bot.worldSpeed * 3.5;
+    for (const w of bot.botWheels) w.rotation.x -= bot.currentSpeed * 3.5;
+  }
+
+  // ── Bot ↔ bot collisions ──────────────────────────────────────────
+  for (let i = 0; i < bots.length; i++) {
+    if (bots[i].crashed) continue;
+    for (let j = i + 1; j < bots.length; j++) {
+      if (bots[j].crashed) continue;
+      const dx = bots[i].mesh.position.x - bots[j].mesh.position.x;
+      const dz = bots[i].mesh.position.z - bots[j].mesh.position.z;
+      if (dx * dx + dz * dz < BOT_COLLISION_R2) {
+        crashBot(bots[i]);
+        crashBot(bots[j]);
+      }
+    }
   }
 }
 
@@ -1151,6 +1237,18 @@ function checkCollision() {
   for (const [wx, wz] of points) {
     if (Math.abs(lateralOffset(wx, wz, carTrackIdx)) > CRASH_HALF) {
       spawnExplosion();
+      return;
+    }
+  }
+
+  // ── Player ↔ bot collision ────────────────────────────────────────
+  for (const bot of bots) {
+    if (bot.crashed) continue;
+    const dx = carMesh.position.x - bot.mesh.position.x;
+    const dz = carMesh.position.z - bot.mesh.position.z;
+    if (dx * dx + dz * dz < BOT_COLLISION_R2) {
+      spawnExplosion();
+      crashBot(bot);
       return;
     }
   }
