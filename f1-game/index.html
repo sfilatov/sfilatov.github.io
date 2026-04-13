@@ -794,6 +794,99 @@ carMesh.rotation.y = carAngle;
 scene.add(carMesh);
 
 // ═══════════════════════════════════════════════════════════════════
+//  BOT CARS
+// ═══════════════════════════════════════════════════════════════════
+function buildBotCar(bodyCol) {
+  const car = new THREE.Group();
+  function mbox(w, h, d, col, x=0, y=0, z=0) {
+    const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d),
+      new THREE.MeshLambertMaterial({ color: col }));
+    m.position.set(x, y, z);
+    m.castShadow = true;
+    car.add(m);
+  }
+  // Chassis
+  mbox(1.50, 0.20, 3.8,  bodyCol, 0,     0.28,  0);
+  mbox(0.60, 0.22, 0.70, DARK,    0,     0.52,  0.28); // cockpit
+  mbox(0.50, 0.10, 1.20, bodyCol, 0,     0.24,  2.10); // nose
+  mbox(1.46, 0.05, 3.50, DARK,    0,     0.15,  0);    // floor
+  // Sidepods
+  mbox(0.26, 0.18, 1.20, bodyCol, -0.84, 0.30,  0.10);
+  mbox(0.26, 0.18, 1.20, bodyCol,  0.84, 0.30,  0.10);
+  // Front wing
+  mbox(2.00, 0.05, 0.55, bodyCol, 0,     0.16,  2.72);
+  // Rear wing
+  mbox(1.45, 0.06, 0.50, bodyCol, 0,     0.95, -2.00);
+  mbox(1.45, 0.06, 0.35, bodyCol, 0,     0.78, -2.02);
+
+  const WHEEL_POS = [[-0.97,0.33,1.75],[0.97,0.33,1.75],[-1.00,0.33,-1.40],[1.00,0.33,-1.40]];
+  const botWheels = [];
+  for (const [x, y, z] of WHEEL_POS) {
+    const wg   = new THREE.Group();
+    const tyre = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.33, 0.33, 0.40, 12),
+      new THREE.MeshLambertMaterial({ color: DARK })
+    );
+    tyre.rotation.z = Math.PI / 2;
+    tyre.castShadow = true;
+    wg.add(tyre);
+    wg.position.set(x, y, z);
+    car.add(wg);
+    botWheels.push(wg);
+  }
+  return { car, botWheels };
+}
+
+// Bot configuration: McLaren orange, Aston green, Williams blue, Mercedes silver
+const BOT_COLORS = [0xFF8700, 0x00594f, 0x005AFF, 0xaaaaaa];
+const BOT_SPEEDS = [0.84, 0.78, 0.91, 0.71]; // world units / frame (player MAX_FWD = 1.25)
+const BOT_LANES  = [-4.0, 3.5, -6.0, 5.0];  // lateral offset from centerline
+
+let trackSampleDist = 1; // metres per track sample — recomputed on each loadTrack
+
+const bots = BOT_COLORS.map((col, i) => {
+  const { car: mesh, botWheels } = buildBotCar(col);
+  scene.add(mesh);
+  return { mesh, botWheels, trackIdx: 0, worldSpeed: BOT_SPEEDS[i], laneOff: BOT_LANES[i] };
+});
+
+function resetBots() {
+  if (!tPts.length) return;
+  trackSampleDist = tPts[0].distanceTo(tPts[1]);
+  if (trackSampleDist < 1e-4) trackSampleDist = 1;
+  const N = tPts.length;
+  bots.forEach((bot, i) => {
+    // Stagger bots behind the start line
+    bot.trackIdx = ((N - (i + 1) * 35) % N + N) % N;
+    const i0  = Math.floor(bot.trackIdx) % N;
+    const pt  = tPts[i0], nor = tNormals[i0], tan = tTangents[i0];
+    bot.mesh.position.set(pt.x + nor.x * bot.laneOff, CAR_Y, pt.z + nor.z * bot.laneOff);
+    bot.mesh.rotation.y = Math.atan2(tan.x, tan.z);
+  });
+}
+
+function updateBots() {
+  if (!tPts.length) return;
+  const N   = tPts.length;
+  const inv = 1 / (trackSampleDist || 1);
+  for (const bot of bots) {
+    bot.trackIdx = (bot.trackIdx + bot.worldSpeed * inv) % N;
+    const i0 = Math.floor(bot.trackIdx);
+    const i1 = (i0 + 1) % N;
+    const t  = bot.trackIdx - i0;
+    const p   = new THREE.Vector3().lerpVectors(tPts[i0],     tPts[i1],     t);
+    const nor = new THREE.Vector3().lerpVectors(tNormals[i0], tNormals[i1], t).normalize();
+    const tan = new THREE.Vector3().lerpVectors(tTangents[i0], tTangents[i1], t).normalize();
+    bot.mesh.position.set(p.x + nor.x * bot.laneOff, CAR_Y, p.z + nor.z * bot.laneOff);
+    bot.mesh.rotation.y = Math.atan2(tan.x, tan.z);
+    for (const w of bot.botWheels) w.rotation.x -= bot.worldSpeed * 3.5;
+  }
+}
+
+// Initial bot placement (tPts is already populated by loadTrack(0) above)
+resetBots();
+
+// ═══════════════════════════════════════════════════════════════════
 //  CAMERA  (smooth 3rd-person follow)
 // ═══════════════════════════════════════════════════════════════════
 const camLookAt = carMesh.position.clone();
@@ -1016,6 +1109,7 @@ function restartCar() {
       trackIndex = 0;
       loadTrack(0);
     }
+    resetBots();
   }
 
   const spawnIdx = isGameOver ? 0 : crashTrackIdx;
@@ -1109,6 +1203,7 @@ function updateCar() {
       elLap.textContent = 0;
       trackIndex++;
       loadTrack(trackIndex);
+      resetBots();
       // Teleport car to new track start
       carMesh.position.set(tPts[0].x, CAR_Y, tPts[0].z);
       carAngle = Math.atan2(tTangents[0].x, tTangents[0].z);
@@ -1417,6 +1512,7 @@ function animate() {
     updateAudio();
     updateHUD();
     updateExplosion();
+    updateBots();
   }
   if (trackNotifTimer > 0) {
     trackNotifTimer--;
