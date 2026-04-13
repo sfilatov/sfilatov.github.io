@@ -784,7 +784,7 @@ function playScore() {
 // ─── GAME STATE ──────────────────────────────────────────────────────────────
 let gameActive = false, gameOver = false;
 let score = 0, bestScore = 0;
-let gameSpeed  = BASE_SPEED;
+let gameSpeed  = MAX_SPEED;
 let horseY     = 0, jumpVel = 0, isJumping = false;
 let legPhase   = 0, tailWave = 0;
 let obstTimer  = 0, nextGap = 3.8;
@@ -827,7 +827,7 @@ for (const [btn, key] of [[moveLeftBtn, 'ArrowLeft'], [moveRightBtn, 'ArrowRight
 // ─── RESET / START / END ─────────────────────────────────────────────────────
 function resetGame() {
   horseY = 0; jumpVel = 0; isJumping = false;
-  score  = 0; gameSpeed = BASE_SPEED;
+  score  = 0; gameSpeed = MAX_SPEED;
   legPhase = 0; tailWave = 0;
   obstTimer = 0; nextGap = 3.8;
   hoofTimer = 0; crashAnim = 0; hudFrame = 0;
@@ -891,8 +891,7 @@ function updatePhysics(dt) {
     }
   }
   horseGroup.position.y = horseY + HORSE_GROUND_Y;
-  // Speed ramp
-  gameSpeed = Math.min(MAX_SPEED, gameSpeed + SPEED_RATE * dt);
+  // Speed is constant at MAX_SPEED
 }
 
 function updateAnimation(dt) {
