@@ -544,7 +544,7 @@ function buildCarSprite() {
   return group;
 }
 
-// ── Legacy helpers kept for nothing now; car is sprite-based ─────────
+// ── 3D car model (buildCarSprite kept below as dead code) ─────────────
 function buildF1Car() {
   const car = new THREE.Group();
 
@@ -692,7 +692,7 @@ function buildF1Car() {
   return { car, wheels, frontWheels };
 }
 
-const carMesh = buildCarSprite();
+const { car: carMesh, wheels: carWheels } = buildF1Car();
 
 // Place car at track start, facing along the track
 const startPos = trackCurve.getPointAt(0);
@@ -756,6 +756,7 @@ const TURN     = 0.026;
 const CRASH_HALF   = TRACK_W / 2 + 5.5;
 let carTrackIdx    = 0;
 let carCrashed     = false;
+let steerVisual    = 0;
 let explosionTimer = 0;
 const debrisPieces = [];
 const firePieces   = [];
@@ -987,7 +988,13 @@ function updateCar() {
   carMesh.position.x += Math.sin(carAngle) * carSpeed;
   carMesh.position.z += Math.cos(carAngle) * carSpeed;
 
-  // (wheel spin and steer visuals removed — car is now a flat sprite)
+  // Wheel animation
+  const targetSteer = left ? 0.32 : right ? -0.32 : 0;
+  steerVisual += (targetSteer - steerVisual) * 0.18;
+  for (const w of carWheels) {
+    w.spin.rotation.x -= carSpeed * 3.5;
+    if (w.front) w.steer.rotation.y = steerVisual;
+  }
 
   checkCollision();
 }
