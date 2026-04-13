@@ -1149,9 +1149,10 @@ function updateCamera() {
 //  AUDIO  (Web Audio API)
 // ═══════════════════════════════════════════════════════════════════
 let audioCtx = null;
-let osc1 = null, osc2 = null, osc3 = null;
-let masterGain = null, noiseGain = null, filter = null;
-let windRushGain = null, windLFODepth = null;
+let oscBody = null, oscDet = null, oscMid = null, oscScream = null;
+let masterGain = null, noiseGain = null, popGain = null, screechGain = null;
+let bpFilter = null;
+let prevSpeed = 0;
 
 function initAudio() {
   if (audioCtx) {
@@ -1160,8 +1161,6 @@ function initAudio() {
   }
   audioCtx = new (window.AudioContext || window.webkitAudioContext)();
 
-  // iOS Safari requires playing a silent buffer in the same gesture to fully
-  // unlock the audio system. resume() alone is not sufficient.
   function unlockAudio() {
     if (audioCtx.state === 'suspended') {
       audioCtx.resume().then(() => {
@@ -1174,140 +1173,145 @@ function initAudio() {
     }
   }
   unlockAudio();
-  // Belt-and-suspenders: also unlock on any subsequent touch
   document.addEventListener('touchstart', unlockAudio, { once: false, passive: true });
 
   masterGain = audioCtx.createGain();
   masterGain.gain.value = 0.001;
   masterGain.connect(audioCtx.destination);
 
-  // Distortion waveshaper – gives it that buzzy F1 quality
+  // Hard-clip distortion — harsher mechanical crunch than soft clip
   const distortion = audioCtx.createWaveShaper();
-  const k = 200, n = 256, curve = new Float32Array(n);
-  for (let i = 0; i < n; i++) {
-    const x = (i * 2) / n - 1;
-    curve[i] = ((Math.PI + k) * x) / (Math.PI + k * Math.abs(x));
+  const dCurve = new Float32Array(512);
+  const threshold = 0.35;
+  for (let i = 0; i < 512; i++) {
+    const x = (i * 2) / 512 - 1;
+    dCurve[i] = x < -threshold ? -threshold * 2.2
+              : x >  threshold ?  threshold * 2.2
+              : x * 2.2;
   }
-  distortion.curve = curve;
+  distortion.curve = dCurve;
   distortion.oversample = '4x';
   distortion.connect(masterGain);
 
-  filter = audioCtx.createBiquadFilter();
-  filter.type = 'lowpass';
-  filter.frequency.value = 500;
-  filter.Q.value = 0.7;
-  filter.connect(distortion);
+  // Resonant bandpass — sweeps from muffled idle to screaming redline
+  bpFilter = audioCtx.createBiquadFilter();
+  bpFilter.type = 'bandpass';
+  bpFilter.frequency.value = 150;
+  bpFilter.Q.value = 3.5;
+  bpFilter.connect(distortion);
 
-  // Fundamental oscillator
-  osc1 = audioCtx.createOscillator();
-  osc1.type = 'sawtooth';
-  osc1.frequency.value = 80;
-  const g1 = audioCtx.createGain(); g1.gain.value = 0.55;
-  osc1.connect(g1); g1.connect(filter);
+  // Second narrower bandpass for upper harmonic character
+  const bp2 = audioCtx.createBiquadFilter();
+  bp2.type = 'bandpass';
+  bp2.frequency.value = 700;
+  bp2.Q.value = 1.8;
+  bp2.connect(distortion);
 
-  // 2nd harmonic
-  osc2 = audioCtx.createOscillator();
-  osc2.type = 'square';
-  osc2.frequency.value = 160;
-  const g2 = audioCtx.createGain(); g2.gain.value = 0.30;
-  osc2.connect(g2); g2.connect(filter);
+  // ── Three detuned oscillators — chorus thickness ──────────────────
+  oscBody = audioCtx.createOscillator();
+  oscBody.type = 'sawtooth';
+  oscBody.frequency.value = 80;
+  const g1 = audioCtx.createGain(); g1.gain.value = 0.7;
+  oscBody.connect(g1); g1.connect(bpFilter);
 
-  // High-pitched F1 whine (bypasses distortion for clarity)
-  osc3 = audioCtx.createOscillator();
-  osc3.type = 'sawtooth';
-  osc3.frequency.value = 400;
-  const g3 = audioCtx.createGain(); g3.gain.value = 0.12;
-  const hiFilter = audioCtx.createBiquadFilter();
-  hiFilter.type = 'highpass'; hiFilter.frequency.value = 300;
-  osc3.connect(g3); g3.connect(hiFilter); hiFilter.connect(masterGain);
+  oscDet = audioCtx.createOscillator();   // slight detune for chorus
+  oscDet.type = 'sawtooth';
+  oscDet.frequency.value = 80.6;
+  const g2 = audioCtx.createGain(); g2.gain.value = 0.4;
+  oscDet.connect(g2); g2.connect(bpFilter);
 
-  // Wind / tyre noise
-  const bufLen = audioCtx.sampleRate * 2;
-  const noiseBuf = audioCtx.createBuffer(1, bufLen, audioCtx.sampleRate);
-  const noiseData = noiseBuf.getChannelData(0);
-  for (let i = 0; i < bufLen; i++) noiseData[i] = Math.random() * 2 - 1;
-  const noiseSrc = audioCtx.createBufferSource();
-  noiseSrc.buffer = noiseBuf; noiseSrc.loop = true;
-  const noiseBand = audioCtx.createBiquadFilter();
-  noiseBand.type = 'bandpass'; noiseBand.frequency.value = 1200; noiseBand.Q.value = 0.6;
+  oscMid = audioCtx.createOscillator();   // 2nd harmonic with slight detuning
+  oscMid.type = 'sawtooth';
+  oscMid.frequency.value = 163;
+  const g3 = audioCtx.createGain(); g3.gain.value = 0.3;
+  oscMid.connect(g3); g3.connect(bp2);
+
+  // ── High scream (bypasses distortion for clean shriek) ───────────
+  oscScream = audioCtx.createOscillator();
+  oscScream.type = 'sawtooth';
+  oscScream.frequency.value = 600;
+  const hpf = audioCtx.createBiquadFilter();
+  hpf.type = 'highpass'; hpf.frequency.value = 900; hpf.Q.value = 1.2;
+  screechGain = audioCtx.createGain(); screechGain.gain.value = 0;
+  oscScream.connect(hpf); hpf.connect(screechGain); screechGain.connect(masterGain);
+
+  // ── Tyre/wind noise ───────────────────────────────────────────────
+  const nLen = audioCtx.sampleRate * 2;
+  const nBuf = audioCtx.createBuffer(1, nLen, audioCtx.sampleRate);
+  const nData = nBuf.getChannelData(0);
+  for (let i = 0; i < nLen; i++) nData[i] = Math.random() * 2 - 1;
+  const nSrc = audioCtx.createBufferSource();
+  nSrc.buffer = nBuf; nSrc.loop = true;
+  const nBPF = audioCtx.createBiquadFilter();
+  nBPF.type = 'bandpass'; nBPF.frequency.value = 2200; nBPF.Q.value = 0.6;
   noiseGain = audioCtx.createGain(); noiseGain.gain.value = 0;
-  noiseSrc.connect(noiseBand); noiseBand.connect(noiseGain); noiseGain.connect(masterGain);
-  noiseSrc.start();
+  nSrc.connect(nBPF); nBPF.connect(noiseGain); noiseGain.connect(masterGain);
+  nSrc.start();
 
-  // High-speed wind rush: broadband noise swept by a sine LFO
-  // Produces periodic whooshing gusts that rise above ~70% MAX_FWD
-  const rushBufLen = audioCtx.sampleRate * 3;
-  const rushBuf    = audioCtx.createBuffer(1, rushBufLen, audioCtx.sampleRate);
-  const rushData   = rushBuf.getChannelData(0);
-  for (let i = 0; i < rushBufLen; i++) rushData[i] = Math.random() * 2 - 1;
-  const rushSrc = audioCtx.createBufferSource();
-  rushSrc.buffer = rushBuf; rushSrc.loop = true;
+  // ── Exhaust crackle — sparse impulse noise on lift-off ───────────
+  const pLen = audioCtx.sampleRate * 2;
+  const pBuf = audioCtx.createBuffer(1, pLen, audioCtx.sampleRate);
+  const pData = pBuf.getChannelData(0);
+  for (let i = 0; i < pLen; i++) {
+    pData[i] = Math.random() < 0.018 ? (Math.random() * 2 - 1) * 3.5 : 0;
+  }
+  const pSrc = audioCtx.createBufferSource();
+  pSrc.buffer = pBuf; pSrc.loop = true;
+  const pBPF = audioCtx.createBiquadFilter();
+  pBPF.type = 'bandpass'; pBPF.frequency.value = 350; pBPF.Q.value = 1.0;
+  popGain = audioCtx.createGain(); popGain.gain.value = 0;
+  pSrc.connect(pBPF); pBPF.connect(popGain); popGain.connect(masterGain);
+  pSrc.start();
 
-  // LFO oscillator sweeps the bandpass centre frequency (3 Hz ≈ 3 gusts/s)
-  const lfoOsc = audioCtx.createOscillator();
-  lfoOsc.type = 'sine';
-  lfoOsc.frequency.value = 3.0;
-  windLFODepth = audioCtx.createGain();
-  windLFODepth.gain.value = 0;          // depth grows with speed
-
-  const windBand = audioCtx.createBiquadFilter();
-  windBand.type = 'bandpass';
-  windBand.frequency.value = 1800;
-  windBand.Q.value = 1.4;
-
-  lfoOsc.connect(windLFODepth);
-  windLFODepth.connect(windBand.frequency); // LFO modulates filter centre
-
-  windRushGain = audioCtx.createGain();
-  windRushGain.gain.value = 0;
-  rushSrc.connect(windBand);
-  windBand.connect(windRushGain);
-  windRushGain.connect(masterGain);
-
-  rushSrc.start();
-  lfoOsc.start();
-
-  osc1.start(); osc2.start(); osc3.start();
+  oscBody.start(); oscDet.start(); oscMid.start(); oscScream.start();
 }
 
 function updateAudio() {
   if (!audioCtx || carCrashed) return;
-  const t   = audioCtx.currentTime;
-  const r   = Math.abs(carSpeed) / MAX_FWD;          // 0 → 1
-  const rpm = 800 + r * 14200;                        // 800 – 15000 RPM
-  const f   = rpm / 60;                               // Hz fundamental
+  const t = audioCtx.currentTime;
+  const r = Math.abs(carSpeed) / MAX_FWD;   // 0 → 1
 
-  osc1.frequency.setTargetAtTime(f,        t, 0.06);
-  osc2.frequency.setTargetAtTime(f * 2,    t, 0.06);
-  osc3.frequency.setTargetAtTime(f * 4.5 + r * 350, t, 0.06);
+  // Engine frequency: 45 Hz at idle, 290 Hz at redline
+  const f = 45 + r * 245;
+  const S = 0.04;
+  oscBody.frequency.setTargetAtTime(f,          t, S);
+  oscDet.frequency.setTargetAtTime(f * 1.0075,  t, S);
+  oscMid.frequency.setTargetAtTime(f * 2.015,   t, S);
+  oscScream.frequency.setTargetAtTime(f * 5.1 + r * 180, t, S);
 
-  // Volume swells with throttle, softens on lift/brake
-  const vol = 0.05 + r * 0.28;
-  masterGain.gain.setTargetAtTime(vol, t, 0.06);
+  // Master volume swells with speed
+  masterGain.gain.setTargetAtTime(0.04 + r * 0.26, t, 0.05);
 
-  // Filter opens at high RPM (characteristic F1 shriek)
-  filter.frequency.setTargetAtTime(400 + r * 3200, t, 0.08);
+  // Resonant bandpass sweeps open — the key character of the F1 scream
+  bpFilter.frequency.setTargetAtTime(110 + r * 2600, t, 0.06);
+  bpFilter.Q.setTargetAtTime(3.8 - r * 1.8, t, 0.06);   // Q tightens at idle, opens at redline
 
-  // Wind noise proportional to speed
-  noiseGain.gain.setTargetAtTime(r * 0.06, t, 0.1);
+  // Scream overtone kicks in above 55% speed
+  const scream = Math.max(0, (r - 0.55) / 0.45);
+  screechGain.gain.setTargetAtTime(scream * 0.20, t, 0.06);
 
-  // High-speed wind rush: kicks in above 70% MAX_FWD, peaks at 100%
-  const rush = Math.max(0, (r - 0.70) / 0.30);  // 0→1 in top 30% of speed
-  windRushGain.gain.setTargetAtTime(rush * 0.20, t, 0.18);
-  windLFODepth.gain.setTargetAtTime(rush * 1400, t, 0.18);  // ±1400 Hz sweep
+  // Tyre noise proportional to speed
+  noiseGain.gain.setTargetAtTime(r * 0.055, t, 0.1);
+
+  // Exhaust crackle on sharp deceleration from medium+ speed
+  const accel = carSpeed - prevSpeed;
+  const pop = (accel < -0.004 && r > 0.15) ? Math.min(-accel * 28, 0.35) : 0;
+  popGain.gain.setTargetAtTime(pop, t, 0.025);
+
+  prevSpeed = carSpeed;
 }
 
 function stopEngineAudio() {
   if (!audioCtx) return;
   const t = audioCtx.currentTime;
   masterGain.gain.cancelScheduledValues(t);
-  masterGain.gain.setTargetAtTime(0, t, 0.15);
+  masterGain.gain.setTargetAtTime(0, t, 0.12);
   noiseGain.gain.cancelScheduledValues(t);
-  noiseGain.gain.setTargetAtTime(0, t, 0.1);
-  windRushGain.gain.cancelScheduledValues(t);
-  windRushGain.gain.setTargetAtTime(0, t, 0.1);
-  windLFODepth.gain.cancelScheduledValues(t);
-  windLFODepth.gain.setTargetAtTime(0, t, 0.1);
+  noiseGain.gain.setTargetAtTime(0, t, 0.08);
+  screechGain.gain.cancelScheduledValues(t);
+  screechGain.gain.setTargetAtTime(0, t, 0.08);
+  popGain.gain.cancelScheduledValues(t);
+  popGain.gain.setTargetAtTime(0, t, 0.04);
 }
 
 function playCrashSound() {
