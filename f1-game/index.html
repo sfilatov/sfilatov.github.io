@@ -823,6 +823,10 @@ function buildF1Car() {
 
 const { car: carMesh, wheels: carWheels } = buildF1Car();
 
+// ── Starting grid config ───────────────────────────────────────────
+const GRID_SPACING = 12;   // samples between grid rows
+const GRID_LANES   = [-2.5, 3.5, -3.5, 3.5, -3.5]; // [P1, P2, P3, P4, P5]
+
 // Place car at track start on P1 grid slot (left of center)
 let carAngle = Math.atan2(tTangents[0].x, tTangents[0].z);
 carMesh.position.set(tPts[0].x + tNormals[0].x * GRID_LANES[0], CAR_Y, tPts[0].z + tNormals[0].z * GRID_LANES[0]);
@@ -899,10 +903,7 @@ const bots = BOT_CONFIGS.map(cfg => {
   };
 });
 
-// ── Starting grid config ───────────────────────────────────────────
-// P1 pole (player) on left; bots stagger right/left every row behind.
-const GRID_SPACING = 12;   // samples between grid rows
-const GRID_LANES   = [-2.5, 3.5, -3.5, 3.5, -3.5]; // [P1, P2, P3, P4, P5]
+// ── Starting grid config (constants moved above — see line ~825) ───
 
 function gridPosition(sampleIdx) {
   // Returns {x, z, angle} on track centerline at given sample index
