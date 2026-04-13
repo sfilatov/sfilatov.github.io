@@ -56,6 +56,11 @@
       border-radius: 5px;
     }
     #rpmLabel { font-size: 10px; color: #555; margin-top: 3px; }
+    #lapCount {
+      font-size: 18px; font-weight: 700; color: #fff;
+      margin-top: 10px; letter-spacing: 2px;
+    }
+    #lapCount span { color: #FFD700; text-shadow: 0 0 10px #FFD700aa; }
 
     /* ── Crash / explosion ── */
     #crashFlash {
@@ -162,6 +167,7 @@
   <div id="speedUnit">KM/H</div>
   <div id="rpmTrack"><div id="rpmFill"></div></div>
   <div id="rpmLabel">RPM ──────────────── REDLINE</div>
+  <div id="lapCount">KOL <span id="lapNum">0</span></div>
 </div>
 
 <!-- ── Crash effects ── -->
@@ -362,6 +368,77 @@ scene.add(ribbonMesh(tPts, tNormals, 0.22,               0xffe040, 0.04));
     );
     sq.rotation.y = -Math.atan2(tan.x, tan.z);
     scene.add(sq);
+  }
+
+  // ── Gantry arch ──────────────────────────────────────────────────
+  const POST_H  = 10;
+  const HALF_SP = TRACK_W / 2 + 3.5;   // post distance from track centre
+  const SPAN    = HALF_SP * 2;
+  const rotY    = -Math.atan2(tan.x, tan.z);
+
+  const whiteMat = new THREE.MeshLambertMaterial({ color: 0xffffff });
+  const redMat   = new THREE.MeshLambertMaterial({ color: 0xFF1801 });
+  const darkMat  = new THREE.MeshLambertMaterial({ color: 0x111111 });
+
+  // Vertical posts
+  for (const side of [-1, 1]) {
+    const px = p.x + nor.x * side * HALF_SP;
+    const pz = p.z + nor.z * side * HALF_SP;
+    const post = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.30, 0.36, POST_H, 10),
+      whiteMat
+    );
+    post.position.set(px, POST_H / 2, pz);
+    post.castShadow = true;
+    scene.add(post);
+
+    // Base plate
+    const base = new THREE.Mesh(
+      new THREE.BoxGeometry(1.4, 0.25, 1.4),
+      darkMat
+    );
+    base.position.set(px, 0.12, pz);
+    scene.add(base);
+  }
+
+  // Top crossbar
+  const bar = new THREE.Mesh(
+    new THREE.BoxGeometry(SPAN + 0.6, 0.6, 0.6),
+    whiteMat
+  );
+  bar.position.set(p.x, POST_H, p.z);
+  bar.rotation.y = rotY;
+  bar.castShadow = true;
+  scene.add(bar);
+
+  // Red banner (hangs from bar)
+  const BANNER_H = 2.2;
+  const banner = new THREE.Mesh(
+    new THREE.BoxGeometry(SPAN - 0.8, BANNER_H, 0.18),
+    redMat
+  );
+  banner.position.set(p.x, POST_H - BANNER_H / 2 - 0.3, p.z);
+  banner.rotation.y = rotY;
+  banner.castShadow = true;
+  scene.add(banner);
+
+  // Black checkered segments on banner
+  const SEG_COUNT = 10;
+  const SEG_W = (SPAN - 0.8) / SEG_COUNT;
+  for (let i = 0; i < SEG_COUNT; i++) {
+    if (i % 2 === 0) continue;
+    const offset = (i - SEG_COUNT / 2 + 0.5) * SEG_W;
+    const seg = new THREE.Mesh(
+      new THREE.BoxGeometry(SEG_W - 0.05, BANNER_H - 0.1, 0.22),
+      darkMat
+    );
+    seg.position.set(
+      p.x + nor.x * offset,
+      POST_H - BANNER_H / 2 - 0.3,
+      p.z + nor.z * offset
+    );
+    seg.rotation.y = rotY;
+    scene.add(seg);
   }
 })();
 
@@ -755,6 +832,8 @@ const TURN     = 0.026;
 // ── Collision & Explosion system ────────────────────────────────────
 const CRASH_HALF   = TRACK_W / 2 + 5.5;
 let carTrackIdx    = 0;
+let prevTrackIdx   = 0;
+let lapCount       = 0;
 let carCrashed     = false;
 let steerVisual    = 0;
 let explosionTimer = 0;
@@ -916,6 +995,8 @@ function restartCar() {
   if (isGameOver) {
     lives = MAX_LIVES;
     renderLives();
+    lapCount = 0;
+    elLap.textContent = 0;
   }
 
   const spawnIdx = isGameOver ? 0 : crashTrackIdx;
@@ -997,6 +1078,14 @@ function updateCar() {
   }
 
   checkCollision();
+
+  // Lap detection: forward crossing of the start/finish line (idx 0)
+  const N = tPts.length;
+  if (prevTrackIdx > N - 40 && carTrackIdx < 40 && carSpeed > 0) {
+    lapCount++;
+    elLap.textContent = lapCount;
+  }
+  prevTrackIdx = carTrackIdx;
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -1233,6 +1322,7 @@ function playCrashSound() {
 const elGear  = document.getElementById('gearNum');
 const elSpeed = document.getElementById('speedNum');
 const elRpm   = document.getElementById('rpmFill');
+const elLap   = document.getElementById('lapNum');
 
 const GEAR_RATIOS = [0, 0.11, 0.24, 0.40, 0.58, 0.77, 1.0];
 
