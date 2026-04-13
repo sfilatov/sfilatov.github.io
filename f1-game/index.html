@@ -1369,19 +1369,25 @@ const CAM_HEIGHT = 5.5;
 const CAM_LERP   = 0.07;
 
 function updateCamera() {
+  const lookBack = keys['KeyE'];
   const sinA = Math.sin(carMesh.rotation.y);
   const cosA = Math.cos(carMesh.rotation.y);
+
+  // When looking back: camera moves in front of car, looks rearward
+  const dir   = lookBack ? 1 : -1;
+  const dist  = lookBack ? CAM_DIST * 0.9 : CAM_DIST;
   const targetPos = new THREE.Vector3(
-    carMesh.position.x - sinA * CAM_DIST,
-    carMesh.position.y + CAM_HEIGHT,
-    carMesh.position.z - cosA * CAM_DIST
+    carMesh.position.x + sinA * dir * dist,
+    carMesh.position.y + CAM_HEIGHT * (lookBack ? 0.7 : 1),
+    carMesh.position.z + cosA * dir * dist
   );
   camera.position.lerp(targetPos, CAM_LERP);
 
+  const lookDir = lookBack ? -4 : 4;
   const lookTarget = new THREE.Vector3(
-    carMesh.position.x + sinA * 4,
+    carMesh.position.x + sinA * lookDir,
     carMesh.position.y + 0.5,
-    carMesh.position.z + cosA * 4
+    carMesh.position.z + cosA * lookDir
   );
   camLookAt.lerp(lookTarget, CAM_LERP * 1.8);
   camera.lookAt(camLookAt);
