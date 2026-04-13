@@ -62,6 +62,16 @@
     }
     #lapCount span { color: #FFD700; text-shadow: 0 0 10px #FFD700aa; }
 
+    /* ── Track switch notification ── */
+    #trackNotif {
+      display: none; position: absolute; top: 38%; left: 50%;
+      transform: translateX(-50%);
+      font-size: 58px; font-weight: 900; color: #FF1801;
+      text-shadow: 0 0 40px #FF1801cc, 0 0 80px #ff000055;
+      pointer-events: none; z-index: 7; letter-spacing: 10px;
+      white-space: nowrap;
+    }
+
     /* ── Crash / explosion ── */
     #crashFlash {
       display: none; position: absolute; inset: 0;
@@ -170,6 +180,9 @@
   <div id="lapCount">KOL <span id="lapNum">0</span></div>
 </div>
 
+<!-- ── Track switch notification ── -->
+<div id="trackNotif"></div>
+
 <!-- ── Crash effects ── -->
 <div id="crashFlash"></div>
 <div id="crashMsg">
@@ -258,36 +271,38 @@ scene.add(ground);
 //  TRACK
 // ═══════════════════════════════════════════════════════════════════
 const TRACK_W = 22;
-
-// Control points defining the circuit centerline
-const RAW_PTS = [
-  [   0,  0,    0],
-  [  30,  0,  -50],
-  [  65,  0, -105],
-  [  55,  0, -170],
-  [   0,  0, -215],
-  [ -65,  0, -235],
-  [-130,  0, -210],
-  [-170,  0, -155],
-  [-178,  0,  -80],
-  [-155,  0,   -5],
-  [-115,  0,   55],
-  [ -60,  0,   95],
-  [  -8,  0,   85],
-  [  22,  0,   42],
-].map(p => new THREE.Vector3(...p));
-
-const trackCurve = new THREE.CatmullRomCurve3(RAW_PTS, true, 'catmullrom', 0.5);
 const SAMPLES = 500;
-const tPts = trackCurve.getSpacedPoints(SAMPLES).slice(0, SAMPLES);
 
-// Compute per-point tangent & normal once (reused by barriers/lines/etc.)
-const tTangents = [], tNormals = [];
-for (let i = 0; i < tPts.length; i++) {
-  const n = tPts[(i + 1) % tPts.length];
-  const tan = new THREE.Vector3().subVectors(n, tPts[i]).normalize();
-  tTangents.push(tan);
-  tNormals.push(new THREE.Vector3(-tan.z, 0, tan.x));
+const TRACK_NAMES = ['TRACK 1', 'TRACK 2', 'TRACK 3'];
+
+const TRACK_LAYOUTS = [
+  // Track 1 – original winding circuit
+  [[0,0,0],[30,0,-50],[65,0,-105],[55,0,-170],[0,0,-215],[-65,0,-235],
+   [-130,0,-210],[-170,0,-155],[-178,0,-80],[-155,0,-5],[-115,0,55],
+   [-60,0,95],[-8,0,85],[22,0,42]],
+  // Track 2 – fast open sweeper
+  [[0,0,0],[90,0,-30],[160,0,-100],[170,0,-220],[90,0,-310],[0,0,-340],
+   [-90,0,-310],[-170,0,-220],[-160,0,-100],[-90,0,-30],[-25,0,55],[25,0,55]],
+  // Track 3 – tight technical
+  [[0,0,0],[50,0,-25],[95,0,-15],[135,0,-60],[140,0,-120],[105,0,-165],
+   [55,0,-190],[10,0,-172],[-30,0,-130],[-55,0,-85],[-60,0,-40],
+   [-45,0,5],[-15,0,45],[20,0,55]],
+];
+
+let tPts = [], tTangents = [], tNormals = [];
+
+function computeTrackData(rawPts) {
+  const vecs  = rawPts.map(p => new THREE.Vector3(...p));
+  const curve = new THREE.CatmullRomCurve3(vecs, true, 'catmullrom', 0.5);
+  const pts   = curve.getSpacedPoints(SAMPLES).slice(0, SAMPLES);
+  const tangents = [], normals = [];
+  for (let i = 0; i < pts.length; i++) {
+    const n   = pts[(i + 1) % pts.length];
+    const tan = new THREE.Vector3().subVectors(n, pts[i]).normalize();
+    tangents.push(tan);
+    normals.push(new THREE.Vector3(-tan.z, 0, tan.x));
+  }
+  return { pts, tangents, normals };
 }
 
 /* Build a flat ribbon mesh along a point list */
@@ -316,44 +331,40 @@ function ribbonMesh(pts, normals, halfW, color, yOff) {
   return mesh;
 }
 
-// Asphalt
-scene.add(ribbonMesh(tPts, tNormals, TRACK_W / 2,        0x2a2a2a, 0.02));
-// White kerb strip (just inside the asphalt edge)
-scene.add(ribbonMesh(tPts, tNormals, TRACK_W / 2 - 0.1,  0xffffff, 0.025));
-// Inner asphalt (overpaints all but the white edge)
-scene.add(ribbonMesh(tPts, tNormals, TRACK_W / 2 - 1.4,  0x2a2a2a, 0.03));
-// Yellow centre line
-scene.add(ribbonMesh(tPts, tNormals, 0.22,               0xffe040, 0.04));
+function buildTrackGeometry(pts, tangents, normals) {
+  const grp = new THREE.Group();
 
-// ── Barriers ──────────────────────────────────────────────────────
-(function() {
-  const geo  = new THREE.BoxGeometry(0.9, 0.9, 2.4);
-  const mats = [0xdd2020, 0xffffff].map(c =>
-    new THREE.MeshLambertMaterial({ color: c })
-  );
+  grp.add(ribbonMesh(pts, normals, TRACK_W / 2,        0x2a2a2a, 0.02));
+  grp.add(ribbonMesh(pts, normals, TRACK_W / 2 - 0.1,  0xffffff, 0.025));
+  grp.add(ribbonMesh(pts, normals, TRACK_W / 2 - 1.4,  0x2a2a2a, 0.03));
+  grp.add(ribbonMesh(pts, normals, 0.22,               0xffe040, 0.04));
+
+  // ── Barriers ──
+  const bGeo  = new THREE.BoxGeometry(0.9, 0.9, 2.4);
+  const bMats = [0xdd2020, 0xffffff].map(c => new THREE.MeshLambertMaterial({ color: c }));
   const STEP = 5;
   for (const side of [1, -1]) {
-    for (let i = 0; i < tPts.length; i += STEP) {
-      const p   = tPts[i];
-      const nor = tNormals[i];
-      const tan = tTangents[i];
+    for (let i = 0; i < pts.length; i += STEP) {
+      const p   = pts[i];
+      const nor = normals[i];
+      const tan = tangents[i];
       const pos = p.clone().addScaledVector(nor, side * (TRACK_W / 2 + 6.0));
-      const m   = new THREE.Mesh(geo, mats[Math.floor(i / STEP) % 2]);
+      const m   = new THREE.Mesh(bGeo, bMats[Math.floor(i / STEP) % 2]);
       m.position.set(pos.x, 0.45, pos.z);
       m.lookAt(pos.x + tan.x, 0.45, pos.z + tan.z);
       m.castShadow = true;
-      scene.add(m);
+      grp.add(m);
     }
   }
-})();
 
-// ── Start / Finish checkered line ─────────────────────────────────
-(function() {
+  // ── Start / Finish checkered line + gantry ──
   const COLS = 12;
   const colW = TRACK_W / COLS;
-  const p    = tPts[0];
-  const tan  = tTangents[0];
-  const nor  = tNormals[0];
+  const p0   = pts[0];
+  const tan0 = tangents[0];
+  const nor0 = normals[0];
+  const rotY = -Math.atan2(tan0.x, tan0.z);
+
   for (let c = 0; c < COLS; c++) {
     const offset = (c - COLS / 2 + 0.5) * colW;
     const sq = new THREE.Mesh(
@@ -362,85 +373,82 @@ scene.add(ribbonMesh(tPts, tNormals, 0.22,               0xffe040, 0.04));
     );
     sq.rotation.x = -Math.PI / 2;
     sq.position.set(
-      p.x + nor.x * offset + tan.x * 1,
+      p0.x + nor0.x * offset + tan0.x,
       0.045,
-      p.z + nor.z * offset + tan.z * 1
+      p0.z + nor0.z * offset + tan0.z
     );
-    sq.rotation.y = -Math.atan2(tan.x, tan.z);
-    scene.add(sq);
+    sq.rotation.y = rotY;
+    grp.add(sq);
   }
 
-  // ── Gantry arch ──────────────────────────────────────────────────
   const POST_H  = 10;
-  const HALF_SP = TRACK_W / 2 + 3.5;   // post distance from track centre
+  const HALF_SP = TRACK_W / 2 + 3.5;
   const SPAN    = HALF_SP * 2;
-  const rotY    = -Math.atan2(tan.x, tan.z);
-
   const whiteMat = new THREE.MeshLambertMaterial({ color: 0xffffff });
   const redMat   = new THREE.MeshLambertMaterial({ color: 0xFF1801 });
   const darkMat  = new THREE.MeshLambertMaterial({ color: 0x111111 });
 
-  // Vertical posts
   for (const side of [-1, 1]) {
-    const px = p.x + nor.x * side * HALF_SP;
-    const pz = p.z + nor.z * side * HALF_SP;
-    const post = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.30, 0.36, POST_H, 10),
-      whiteMat
-    );
+    const px = p0.x + nor0.x * side * HALF_SP;
+    const pz = p0.z + nor0.z * side * HALF_SP;
+    const post = new THREE.Mesh(new THREE.CylinderGeometry(0.30, 0.36, POST_H, 10), whiteMat);
     post.position.set(px, POST_H / 2, pz);
     post.castShadow = true;
-    scene.add(post);
-
-    // Base plate
-    const base = new THREE.Mesh(
-      new THREE.BoxGeometry(1.4, 0.25, 1.4),
-      darkMat
-    );
+    grp.add(post);
+    const base = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.25, 1.4), darkMat);
     base.position.set(px, 0.12, pz);
-    scene.add(base);
+    grp.add(base);
   }
 
-  // Top crossbar
-  const bar = new THREE.Mesh(
-    new THREE.BoxGeometry(SPAN + 0.6, 0.6, 0.6),
-    whiteMat
-  );
-  bar.position.set(p.x, POST_H, p.z);
+  const bar = new THREE.Mesh(new THREE.BoxGeometry(SPAN + 0.6, 0.6, 0.6), whiteMat);
+  bar.position.set(p0.x, POST_H, p0.z);
   bar.rotation.y = rotY;
   bar.castShadow = true;
-  scene.add(bar);
+  grp.add(bar);
 
-  // Red banner (hangs from bar)
   const BANNER_H = 2.2;
-  const banner = new THREE.Mesh(
-    new THREE.BoxGeometry(SPAN - 0.8, BANNER_H, 0.18),
-    redMat
-  );
-  banner.position.set(p.x, POST_H - BANNER_H / 2 - 0.3, p.z);
+  const banner = new THREE.Mesh(new THREE.BoxGeometry(SPAN - 0.8, BANNER_H, 0.18), redMat);
+  banner.position.set(p0.x, POST_H - BANNER_H / 2 - 0.3, p0.z);
   banner.rotation.y = rotY;
   banner.castShadow = true;
-  scene.add(banner);
+  grp.add(banner);
 
-  // Black checkered segments on banner
   const SEG_COUNT = 10;
   const SEG_W = (SPAN - 0.8) / SEG_COUNT;
   for (let i = 0; i < SEG_COUNT; i++) {
     if (i % 2 === 0) continue;
     const offset = (i - SEG_COUNT / 2 + 0.5) * SEG_W;
-    const seg = new THREE.Mesh(
-      new THREE.BoxGeometry(SEG_W - 0.05, BANNER_H - 0.1, 0.22),
-      darkMat
-    );
+    const seg = new THREE.Mesh(new THREE.BoxGeometry(SEG_W - 0.05, BANNER_H - 0.1, 0.22), darkMat);
     seg.position.set(
-      p.x + nor.x * offset,
+      p0.x + nor0.x * offset,
       POST_H - BANNER_H / 2 - 0.3,
-      p.z + nor.z * offset
+      p0.z + nor0.z * offset
     );
     seg.rotation.y = rotY;
-    scene.add(seg);
+    grp.add(seg);
   }
-})();
+
+  return grp;
+}
+
+// ── Track state ──────────────────────────────────────────────────
+let trackIndex = 0;
+let trackGroup = null;
+const trackNotifEl    = document.getElementById('trackNotif');
+let   trackNotifTimer = 0;
+
+function loadTrack(idx) {
+  if (trackGroup) scene.remove(trackGroup);
+  const { pts, tangents, normals } = computeTrackData(TRACK_LAYOUTS[idx % TRACK_LAYOUTS.length]);
+  tPts.splice(0, tPts.length, ...pts);
+  tTangents.splice(0, tTangents.length, ...tangents);
+  tNormals.splice(0, tNormals.length, ...normals);
+  trackGroup = buildTrackGeometry(tPts, tTangents, tNormals);
+  scene.add(trackGroup);
+}
+
+// Build the first track so tPts / tTangents / tNormals are ready
+loadTrack(0);
 
 // ═══════════════════════════════════════════════════════════════════
 //  ENVIRONMENT – trees + grandstand
@@ -772,10 +780,8 @@ function buildF1Car() {
 const { car: carMesh, wheels: carWheels } = buildF1Car();
 
 // Place car at track start, facing along the track
-const startPos = trackCurve.getPointAt(0);
-const startTan = trackCurve.getTangentAt(0);
-let carAngle = Math.atan2(startTan.x, startTan.z);
-carMesh.position.set(startPos.x, CAR_Y, startPos.z);
+let carAngle = Math.atan2(tTangents[0].x, tTangents[0].z);
+carMesh.position.set(tPts[0].x, CAR_Y, tPts[0].z);
 carMesh.rotation.y = carAngle;
 scene.add(carMesh);
 
@@ -783,7 +789,7 @@ scene.add(carMesh);
 //  CAMERA  (smooth 3rd-person follow)
 // ═══════════════════════════════════════════════════════════════════
 const camLookAt = carMesh.position.clone();
-camera.position.set(startPos.x, 5, startPos.z - 11);
+camera.position.set(tPts[0].x, 5, tPts[0].z - 11);
 
 // ═══════════════════════════════════════════════════════════════════
 //  INPUT
@@ -997,6 +1003,11 @@ function restartCar() {
     renderLives();
     lapCount = 0;
     elLap.textContent = 0;
+    // Reset to track 1
+    if (trackIndex !== 0) {
+      trackIndex = 0;
+      loadTrack(0);
+    }
   }
 
   const spawnIdx = isGameOver ? 0 : crashTrackIdx;
@@ -1084,6 +1095,26 @@ function updateCar() {
   if (prevTrackIdx > N - 40 && carTrackIdx < 40 && carSpeed > 0) {
     lapCount++;
     elLap.textContent = lapCount;
+
+    if (lapCount >= 3) {
+      lapCount = 0;
+      elLap.textContent = 0;
+      trackIndex++;
+      loadTrack(trackIndex);
+      // Teleport car to new track start
+      carMesh.position.set(tPts[0].x, CAR_Y, tPts[0].z);
+      carAngle = Math.atan2(tTangents[0].x, tTangents[0].z);
+      carMesh.rotation.y = carAngle;
+      carSpeed = 0;
+      carTrackIdx = 0;
+      prevTrackIdx = 0;
+      // Show notification
+      const name = TRACK_NAMES[trackIndex % TRACK_NAMES.length];
+      trackNotifEl.textContent = name;
+      trackNotifEl.style.display = 'block';
+      trackNotifEl.style.opacity = '1';
+      trackNotifTimer = 180;
+    }
   }
   prevTrackIdx = carTrackIdx;
 }
@@ -1374,6 +1405,11 @@ function animate() {
     updateAudio();
     updateHUD();
     updateExplosion();
+  }
+  if (trackNotifTimer > 0) {
+    trackNotifTimer--;
+    if (trackNotifTimer < 60) trackNotifEl.style.opacity = (trackNotifTimer / 60).toFixed(2);
+    if (trackNotifTimer === 0) trackNotifEl.style.display = 'none';
   }
   updateCamera();
   renderer.render(scene, camera);
