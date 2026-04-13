@@ -845,10 +845,10 @@ function buildBotCar(bodyCol) {
 // Bot configuration: McLaren orange, Aston green, Williams blue, Mercedes silver
 // baseSpeed: avg world-units/frame; amp: speed oscillation amplitude; freq/phase: oscillation shape
 const BOT_CONFIGS = [
-  { color: 0xFF8700, baseSpeed: 0.88, amp: 0.12, freq: 0.003, phase: 0.0, laneOff: -4.0 }, // McLaren – fast
-  { color: 0x00594f, baseSpeed: 0.58, amp: 0.06, freq: 0.006, phase: 1.2, laneOff:  3.5 }, // Aston   – slow & steady
-  { color: 0x005AFF, baseSpeed: 1.08, amp: 0.10, freq: 0.002, phase: 2.5, laneOff: -6.0 }, // Williams – fastest
-  { color: 0xaaaaaa, baseSpeed: 0.72, amp: 0.15, freq: 0.009, phase: 3.8, laneOff:  5.0 }, // Mercedes – erratic
+  { color: 0xFF8700, baseSpeed: 0.66, amp: 0.12, freq: 0.003, phase: 0.0, laneOff: -4.0 }, // McLaren
+  { color: 0x00594f, baseSpeed: 0.72, amp: 0.06, freq: 0.006, phase: 1.2, laneOff:  3.5 }, // Aston
+  { color: 0x005AFF, baseSpeed: 0.68, amp: 0.10, freq: 0.002, phase: 2.5, laneOff: -6.0 }, // Williams
+  { color: 0xaaaaaa, baseSpeed: 0.63, amp: 0.15, freq: 0.009, phase: 3.8, laneOff:  5.0 }, // Mercedes
 ];
 
 let trackSampleDist = 1; // metres per track sample — recomputed on each loadTrack
