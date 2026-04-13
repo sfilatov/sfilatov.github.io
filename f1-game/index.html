@@ -861,6 +861,7 @@ const bots = BOT_CONFIGS.map(cfg => {
     trackIdx: 0,
     baseSpeed: cfg.baseSpeed, amp: cfg.amp, freq: cfg.freq, phase: cfg.phase,
     laneOff: cfg.laneOff,
+    activeLane: cfg.laneOff, // smooth avoidance-adjusted lane
     currentSpeed: cfg.baseSpeed,
     crashed: false, crashTimer: 0,
     debris: [],
@@ -878,6 +879,7 @@ function resetBots() {
     bot.debris.length = 0;
     bot.crashed    = false;
     bot.crashTimer = 0;
+    bot.activeLane = bot.laneOff;
     bot.mesh.visible = true;
     // Stagger bots behind the start line
     bot.trackIdx = ((N - (i + 1) * 35) % N + N) % N;
@@ -952,11 +954,37 @@ function updateBots() {
     const nor = new THREE.Vector3().lerpVectors(tNormals[i0], tNormals[i1], t).normalize();
     const tan = new THREE.Vector3().lerpVectors(tTangents[i0], tTangents[i1], t).normalize();
 
-    // Slight lane drift unique to each bot
-    const lane = bot.laneOff + Math.sin(bot.trackIdx * bot.freq * 0.5 + bot.phase) * 1.2;
-    bot.mesh.position.set(p.x + nor.x * lane, CAR_Y, p.z + nor.z * lane);
+    // ── Avoidance steering ────────────────────────────────────────────
+    const WARN_R = 8, WARN_R2 = WARN_R * WARN_R;
+    let avoidLateral = 0, speedScale = 1.0;
+
+    const otherCars = [...bots.filter(b => b !== bot && !b.crashed),
+                       ...(!carCrashed ? [{ mesh: carMesh }] : [])];
+    for (const other of otherCars) {
+      const dx = other.mesh.position.x - bot.mesh.position.x;
+      const dz = other.mesh.position.z - bot.mesh.position.z;
+      const d2 = dx * dx + dz * dz;
+      if (d2 < WARN_R2 && d2 > 0.01) {
+        const d    = Math.sqrt(d2);
+        const str  = 1 - d / WARN_R;                      // 0..1 stronger when closer
+        const lat  = dx * nor.x + dz * nor.z;             // +ve = other is to my right
+        const fwd  = dx * tan.x + dz * tan.z;             // +ve = other is ahead
+        avoidLateral -= Math.sign(lat) * str * 5.0;       // steer away laterally
+        if (fwd > 0 && d < 6) speedScale = Math.min(speedScale, 0.35 + 0.65 * (d / 6));
+      }
+    }
+
+    // Desired lane = base + sinusoidal drift + avoidance push (clamped inside track)
+    const drift       = Math.sin(bot.trackIdx * bot.freq * 0.5 + bot.phase) * 1.2;
+    const desiredLane = Math.max(-9, Math.min(9,
+      bot.laneOff + drift + Math.max(-5, Math.min(5, avoidLateral))
+    ));
+    bot.activeLane += (desiredLane - bot.activeLane) * 0.05;
+
+    const adjustedSpeed = bot.currentSpeed * speedScale;
+    bot.mesh.position.set(p.x + nor.x * bot.activeLane, CAR_Y, p.z + nor.z * bot.activeLane);
     bot.mesh.rotation.y = Math.atan2(tan.x, tan.z);
-    for (const w of bot.botWheels) w.rotation.x -= bot.currentSpeed * 3.5;
+    for (const w of bot.botWheels) w.rotation.x -= adjustedSpeed * 3.5;
   }
 
   // ── Bot ↔ bot collisions ──────────────────────────────────────────
