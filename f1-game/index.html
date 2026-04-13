@@ -29,6 +29,26 @@
     #startBtn:hover { background: #ff5030; transform: scale(1.06); }
     #overlay small { margin-top: 28px; color: #555; font-size: 12px; }
 
+    /* ── Start lights ── */
+    #startLights {
+      display: none; position: fixed; top: 56px; left: 50%;
+      transform: translateX(-50%); z-index: 300;
+    }
+    .sl-housing {
+      background: #0d0d0d; border: 3px solid #444; border-radius: 10px;
+      padding: 10px 18px; display: flex; gap: 14px; align-items: center;
+      box-shadow: 0 4px 24px #000a;
+    }
+    .sl {
+      width: 46px; height: 46px; border-radius: 50%;
+      background: #1a0000; border: 3px solid #333;
+      transition: background .08s, box-shadow .08s;
+    }
+    .sl.red {
+      background: #cc0000; border-color: #ff4400;
+      box-shadow: 0 0 16px #ff2200, 0 0 36px #880000;
+    }
+
     /* ── HUD ── */
     #hud {
       display: none; position: absolute; bottom: 24px; right: 24px;
@@ -167,6 +187,17 @@
   <p>START YOUR ENGINES</p>
   <button id="startBtn">&#9654; DRIVE</button>
   <small id="overlayHint">WASD / Arrow Keys &nbsp;·&nbsp; Requires click to unlock audio</small>
+</div>
+
+<!-- ── Start lights panel ── -->
+<div id="startLights">
+  <div class="sl-housing">
+    <div class="sl" id="sl1"></div>
+    <div class="sl" id="sl2"></div>
+    <div class="sl" id="sl3"></div>
+    <div class="sl" id="sl4"></div>
+    <div class="sl" id="sl5"></div>
+  </div>
 </div>
 
 <!-- ── HUD ── -->
@@ -1633,8 +1664,47 @@ if (isTouchDevice) {
 
 let gameActive = false;
 
+function startSequence() {
+  const panel  = document.getElementById('startLights');
+  const lights = [1,2,3,4,5].map(i => document.getElementById('sl' + i));
+  panel.style.display = 'block';
+
+  // Engine idle during countdown
+  if (audioCtx) {
+    const t = audioCtx.currentTime;
+    masterGain.gain.setTargetAtTime(0.28, t, 0.3);
+    oscBody.frequency.setTargetAtTime(72, t, 0.4);
+    oscDet.frequency.setTargetAtTime(72.6, t, 0.4);
+    oscMid.frequency.setTargetAtTime(146, t, 0.4);
+    if (bpFilter) bpFilter.frequency.setTargetAtTime(130, t, 0.4);
+  }
+
+  let i = 0;
+  const interval = setInterval(() => {
+    lights[i].classList.add('red');
+    i++;
+    if (i === 5) {
+      clearInterval(interval);
+      // All 5 lit — rev build before lights out
+      if (audioCtx) {
+        const t = audioCtx.currentTime;
+        oscBody.frequency.linearRampToValueAtTime(160, t + 1.5);
+        oscDet.frequency.linearRampToValueAtTime(161.2, t + 1.5);
+        oscMid.frequency.linearRampToValueAtTime(324, t + 1.5);
+        if (bpFilter) bpFilter.frequency.linearRampToValueAtTime(400, t + 1.5);
+        masterGain.gain.linearRampToValueAtTime(0.55, t + 1.5);
+      }
+      // Random hold 800–2200ms then lights out → GO
+      setTimeout(() => {
+        lights.forEach(l => l.classList.remove('red'));
+        panel.style.display = 'none';
+        gameActive = true;
+      }, 800 + Math.random() * 1400);
+    }
+  }, 800);
+}
+
 document.getElementById('startBtn').addEventListener('click', () => {
-  gameActive = true;
   initAudio();
   lives = MAX_LIVES;
   renderLives();
@@ -1645,6 +1715,7 @@ document.getElementById('startBtn').addEventListener('click', () => {
   } else {
     document.getElementById('hint').style.display = 'block';
   }
+  startSequence();
 });
 
 // ═══════════════════════════════════════════════════════════════════
