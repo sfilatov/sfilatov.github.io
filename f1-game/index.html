@@ -185,11 +185,28 @@
       pointer-events: none;
     }
     #minimapCanvas { display: block; }
+
+    /* ── Pause overlay ── */
+    #pauseOverlay {
+      display: none; position: fixed; inset: 0;
+      background: rgba(0,0,0,0.62); z-index: 400;
+      align-items: center; justify-content: center; flex-direction: column;
+      color: #fff; font-family: 'Arial Narrow', Arial, sans-serif;
+      letter-spacing: 4px;
+    }
+    #pauseOverlay h2 { font-size: 52px; margin: 0 0 12px; color: #e10600; }
+    #pauseOverlay p  { font-size: 16px; color: #aaa; margin: 0; }
   </style>
 </head>
 <body>
 
 <div id="version">v1.0.8</div>
+
+<!-- ── Pause overlay ── -->
+<div id="pauseOverlay">
+  <h2>PAUSED</h2>
+  <p>PRESS ESC TO RESUME</p>
+</div>
 
 <!-- ── Start overlay ── -->
 <div id="overlay">
@@ -1094,6 +1111,11 @@ document.addEventListener('keydown', e => {
   keys[e.code] = true;
   if (BLOCKED.has(e.code)) e.preventDefault();
   if ((e.code === 'Enter' || e.code === 'Space') && carCrashed) restartCar();
+  if (e.code === 'Escape' && gameActive) {
+    gamePaused = !gamePaused;
+    pauseOverlayEl.style.display = gamePaused ? 'flex' : 'none';
+    if (audioCtx) gamePaused ? audioCtx.suspend() : audioCtx.resume();
+  }
 });
 document.addEventListener('keyup',   e => { keys[e.code] = false; });
 
@@ -1700,6 +1722,8 @@ if (isTouchDevice) {
 }
 
 let gameActive = false;
+let gamePaused = false;
+const pauseOverlayEl = document.getElementById('pauseOverlay');
 
 function startSequence() {
   const panel  = document.getElementById('startLights');
@@ -1826,7 +1850,7 @@ function updateMinimap() {
 
 function animate() {
   requestAnimationFrame(animate);
-  if (gameActive) {
+  if (gameActive && !gamePaused) {
     updateCar();
     updateAudio();
     updateHUD();
