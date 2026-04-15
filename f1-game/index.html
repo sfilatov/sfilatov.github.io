@@ -29,6 +29,48 @@
     #startBtn:hover { background: #ff5030; transform: scale(1.06); }
     #overlay small { margin-top: 28px; color: #555; font-size: 12px; }
 
+    /* ── Mode selection ── */
+    #modeSelect {
+      display: flex; gap: 18px; margin-bottom: 32px;
+    }
+    .mode-card {
+      padding: 14px 22px; border: 2px solid #444; border-radius: 8px;
+      cursor: pointer; text-align: center; min-width: 120px;
+      transition: border-color .15s, background .15s;
+      user-select: none;
+    }
+    .mode-card:hover  { border-color: #FF1801; background: rgba(255,24,1,.1); }
+    .mode-card.active { border-color: #FF1801; background: rgba(255,24,1,.18); }
+    .mode-card .mc-name { font-size: 15px; font-weight: 700; letter-spacing: 2px; color: #fff; }
+    .mode-card .mc-desc { font-size: 11px; color: #888; margin-top: 5px; }
+
+    /* ── Mode HUD extras ── */
+    #modeHud {
+      display: none; position: absolute; top: 24px; left: 50%;
+      transform: translateX(-50%);
+      color: #fff; text-align: center; pointer-events: none;
+      font-family: 'Arial Narrow', Arial, sans-serif;
+      text-shadow: 0 2px 8px #000;
+    }
+    #modeHud .mh-main { font-size: 28px; font-weight: 900; letter-spacing: 3px; color: #FFD700; }
+    #modeHud .mh-sub  { font-size: 14px; color: #aaa; margin-top: 2px; letter-spacing: 1px; }
+
+    /* ── Win banner ── */
+    #winBanner {
+      display: none; position: fixed; inset: 0; z-index: 500;
+      background: rgba(0,0,0,.72); align-items: center; justify-content: center;
+      flex-direction: column; color: #fff; font-family: 'Arial Narrow', Arial, sans-serif;
+    }
+    #winBanner h2 { font-size: 72px; font-weight: 900; color: #FFD700;
+      text-shadow: 0 0 40px #FFD700aa; letter-spacing: 10px; margin: 0 0 10px; }
+    #winBanner p  { font-size: 20px; color: #aaa; letter-spacing: 3px; }
+    #winBanner button {
+      margin-top: 32px; padding: 12px 48px; font-size: 16px; font-weight: bold;
+      background: #FF1801; color: #fff; border: none; border-radius: 4px;
+      cursor: pointer; letter-spacing: 3px;
+    }
+    #winBanner button:hover { background: #ff5030; }
+
     /* ── Start lights ── */
     #startLights {
       display: none; position: fixed; top: 56px; left: 50%;
@@ -212,6 +254,24 @@
 <div id="overlay">
   <h1>F1 RACE</h1>
   <p>START YOUR ENGINES</p>
+  <div id="modeSelect">
+    <div class="mode-card active" data-mode="grandprix">
+      <div class="mc-name">GRAND PRIX</div>
+      <div class="mc-desc">3 laps · 3 tracks<br>lives system</div>
+    </div>
+    <div class="mode-card" data-mode="timetrial">
+      <div class="mc-name">TIME TRIAL</div>
+      <div class="mc-desc">Solo · no bots<br>beat your best lap</div>
+    </div>
+    <div class="mode-card" data-mode="elimination">
+      <div class="mc-name">ELIMINATION</div>
+      <div class="mc-desc">Last car out<br>every 20 seconds</div>
+    </div>
+    <div class="mode-card" data-mode="sprint">
+      <div class="mc-name">SPRINT</div>
+      <div class="mc-desc">1 lap · all cars<br>first to finish wins</div>
+    </div>
+  </div>
   <button id="startBtn">&#9654; DRIVE</button>
   <small id="overlayHint">WASD / Arrow Keys &nbsp;·&nbsp; Requires click to unlock audio</small>
 </div>
@@ -241,6 +301,19 @@
 <!-- ── Minimap ── -->
 <div id="minimap">
   <canvas id="minimapCanvas" width="160" height="160"></canvas>
+</div>
+
+<!-- ── Mode HUD (timer / position / countdown) ── -->
+<div id="modeHud">
+  <div class="mh-main" id="mhMain">00:00.000</div>
+  <div class="mh-sub"  id="mhSub"></div>
+</div>
+
+<!-- ── Win banner ── -->
+<div id="winBanner">
+  <h2 id="winTitle">FINISHED!</h2>
+  <p id="winSub"></p>
+  <button id="winBtn">PLAY AGAIN</button>
 </div>
 
 <!-- ── Track switch notification ── -->
@@ -961,6 +1034,7 @@ function resetBots() {
     bot.debris.length = 0;
     bot.crashed    = false;
     bot.crashTimer = 0;
+    bot.raceLaps   = 0;  // monotonic lap counter for elimination/sprint
     // Grid row: bot[0]=P2, bot[1]=P3, bot[2]=P4, bot[3]=P5
     const row      = i + 1;
     const gridLane = GRID_LANES[row];
@@ -1035,6 +1109,8 @@ function updateBots() {
   const inv = 1 / (trackSampleDist || 1);
 
   for (const bot of bots) {
+    // In time trial bots are hidden; still animate debris if somehow triggered
+    if (gameMode === 'timetrial' && !bot.crashed) continue;
     // Crash cooldown + debris
     if (bot.crashed) {
       bot.crashTimer--;
@@ -1057,7 +1133,13 @@ function updateBots() {
 
     // Oscillating speed (simulates corners / straights)
     bot.currentSpeed = bot.baseSpeed + bot.amp * Math.sin(bot.trackIdx * bot.freq + bot.phase);
+    const prevBotIdx = bot.trackIdx;
     bot.trackIdx = (bot.trackIdx + bot.currentSpeed * inv) % N;
+    // Detect lap crossing for race modes
+    if (prevBotIdx > N - 40 && bot.trackIdx < 40) {
+      bot.raceLaps++;
+      if (gameMode === 'sprint') onModeBotLap(bots.indexOf(bot));
+    }
 
     const i0 = Math.floor(bot.trackIdx);
     const i1 = (i0 + 1) % N;
@@ -1361,13 +1443,14 @@ function checkCollision() {
     [carMesh.position.x - sinA * PROBE, carMesh.position.z - cosA * PROBE],
   ];
   for (const [wx, wz] of points) {
-    if (Math.abs(lateralOffset(wx, wz, carTrackIdx)) > CRASH_HALF) {
+    if (gameMode !== 'timetrial' && Math.abs(lateralOffset(wx, wz, carTrackIdx)) > CRASH_HALF) {
       spawnExplosion();
       return;
     }
   }
 
   // ── Player ↔ bot collision ────────────────────────────────────────
+  if (gameMode === 'timetrial') return;
   for (const bot of bots) {
     if (bot.crashed) continue;
     const dx = carMesh.position.x - bot.mesh.position.x;
@@ -1426,8 +1509,9 @@ function updateCar() {
   if (prevTrackIdx > N - 40 && carTrackIdx < 40 && carSpeed > 0) {
     lapCount++;
     elLap.textContent = lapCount;
+    onModePlayerLap();
 
-    if (lapCount >= 3) {
+    if (lapCount >= 3 && gameMode === 'grandprix') {
       lapCount = 0;
       elLap.textContent = 0;
       trackIndex++;
@@ -1721,6 +1805,198 @@ if (isTouchDevice) {
   document.getElementById('overlayHint').textContent = 'Touch controls · Tap to unlock audio';
 }
 
+// ── Game mode ──────────────────────────────────────────────────────
+let gameMode = 'grandprix'; // grandprix | timetrial | elimination | sprint
+
+// Mode card click selection
+document.querySelectorAll('.mode-card').forEach(card => {
+  card.addEventListener('click', () => {
+    document.querySelectorAll('.mode-card').forEach(c => c.classList.remove('active'));
+    card.classList.add('active');
+    gameMode = card.dataset.mode;
+  });
+});
+
+// Time Trial state
+let ttLapStart  = 0;   // performance.now() of lap start
+let ttBestMs    = Infinity;
+
+// Elimination state
+let elimTimer    = 0;  // frames remaining until next elimination
+const ELIM_INTERVAL = 20 * 60; // 20 s at 60 fps
+let elimActive   = false;
+let elimAlive    = 5;  // total cars still alive (player + 4 bots)
+
+// Sprint state
+let sprintFinished = false;
+let playerFinished = false;
+let sprintPlaces   = []; // names of cars in finish order
+
+const modeHudEl  = document.getElementById('modeHud');
+const mhMainEl   = document.getElementById('mhMain');
+const mhSubEl    = document.getElementById('mhSub');
+const winBannerEl= document.getElementById('winBanner');
+const winTitleEl = document.getElementById('winTitle');
+const winSubEl   = document.getElementById('winSub');
+
+document.getElementById('winBtn').addEventListener('click', () => {
+  winBannerEl.style.display = 'none';
+  // Full race reset
+  trackIndex = 0;
+  loadTrack(0);
+  lapCount = 0; elLap.textContent = 0;
+  carTrackIdx = 0; prevTrackIdx = 0; carSpeed = 0; carCrashed = false;
+  const P1pt  = tPts[0], P1nor = tNormals[0], P1tan = tTangents[0];
+  carMesh.position.set(P1pt.x + P1nor.x * GRID_LANES[0], CAR_Y, P1pt.z + P1nor.z * GRID_LANES[0]);
+  carAngle = Math.atan2(P1tan.x, P1tan.z);
+  carMesh.rotation.y = carAngle;
+  resetBots();
+  lives = MAX_LIVES; renderLives();
+  document.getElementById('overlay').style.display = 'flex';
+});
+
+function msToTime(ms) {
+  const m = Math.floor(ms / 60000);
+  const s = Math.floor((ms % 60000) / 1000);
+  const cs = Math.floor((ms % 1000));
+  return `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}.${String(cs).padStart(3,'0')}`;
+}
+
+function showWin(title, sub) {
+  winTitleEl.textContent = title;
+  winSubEl.textContent   = sub;
+  winBannerEl.style.display = 'flex';
+  gameActive = false;
+  if (audioCtx) audioCtx.suspend();
+}
+
+function initModeState() {
+  // Time Trial
+  ttLapStart = performance.now();
+  ttBestMs   = Infinity;
+  // Elimination
+  elimTimer  = ELIM_INTERVAL;
+  elimActive = true;
+  elimAlive  = 5;
+  // Sprint
+  sprintFinished = false;
+  playerFinished = false;
+  sprintPlaces   = [];
+  playerRaceLaps = 0;
+  // Reset bot race laps
+  for (const bot of bots) bot.raceLaps = 0;
+  // HUD
+  modeHudEl.style.display = 'block';
+  mhSubEl.textContent = '';
+  if (gameMode === 'timetrial') {
+    mhMainEl.textContent = '00:00.000';
+    mhSubEl.textContent  = 'BEST: --:--.---';
+    // Hide bots
+    for (const bot of bots) bot.mesh.visible = false;
+  } else if (gameMode === 'elimination') {
+    mhMainEl.textContent = '20';
+    mhSubEl.textContent  = 'NEXT ELIMINATION';
+  } else if (gameMode === 'sprint') {
+    mhMainEl.textContent = 'P1';
+    mhSubEl.textContent  = 'SPRINT · 1 LAP';
+  } else {
+    modeHudEl.style.display = 'none'; // Grand Prix uses its own HUD
+  }
+}
+
+function updateModeLogic() {
+  if (!gameActive || gamePaused) return;
+  const N = tPts.length;
+
+  if (gameMode === 'timetrial') {
+    const elapsed = performance.now() - ttLapStart;
+    mhMainEl.textContent = msToTime(elapsed);
+
+  } else if (gameMode === 'elimination') {
+    if (!elimActive) return;
+    elimTimer--;
+    const secsLeft = Math.ceil(elimTimer / 60);
+    mhMainEl.textContent = String(secsLeft).padStart(2, '0');
+    if (elimTimer <= 0) {
+      elimTimer = ELIM_INTERVAL;
+      // Build standings using monotonic progress (laps * N + trackIdx)
+      const N2 = tPts.length;
+      const playerProg = playerRaceLaps * N2 + carTrackIdx;
+      // Collect all live cars with their progress
+      const standings = [];
+      if (!carCrashed) standings.push({ isPlayer: true,  prog: playerProg });
+      for (const bot of bots) {
+        if (!bot.crashed) standings.push({ isPlayer: false, bot, prog: bot.raceLaps * N2 + bot.trackIdx });
+      }
+      if (standings.length <= 1) {
+        elimActive = false;
+        if (!carCrashed) showWin('YOU WIN!', 'LAST CAR STANDING');
+        return;
+      }
+      standings.sort((a, b) => a.prog - b.prog);
+      const last = standings[0];
+      if (last.isPlayer) {
+        showWin('ELIMINATED!', 'YOU WERE THE SLOWEST');
+        elimActive = false;
+      } else {
+        crashBot(last.bot);
+        elimAlive--;
+        mhSubEl.textContent = `${elimAlive} CARS LEFT`;
+        if (elimAlive <= 1) {
+          elimActive = false;
+          if (!carCrashed) showWin('YOU WIN!', 'LAST CAR STANDING');
+        }
+      }
+    }
+
+  } else if (gameMode === 'sprint') {
+    // Compute position (1–5) using monotonic progress
+    if (playerFinished) return;
+    const N2 = tPts.length;
+    const playerProg2 = playerRaceLaps * N2 + carTrackIdx;
+    let ahead = 0;
+    for (let bi = 0; bi < bots.length; bi++) {
+      const bot = bots[bi];
+      if (bot.crashed || sprintPlaces.includes(bi)) continue;
+      if ((bot.raceLaps * N2 + bot.trackIdx) > playerProg2) ahead++;
+    }
+    const finishedAhead = sprintPlaces.filter(p => p !== 'player').length;
+    const pos = finishedAhead + ahead + 1;
+    mhMainEl.textContent = 'P' + Math.min(pos, 5);
+  }
+}
+
+function onModePlayerLap() {
+  // Called when player crosses the finish line
+  if (gameMode === 'timetrial') {
+    const now = performance.now();
+    const lapMs = now - ttLapStart;
+    ttLapStart = now;
+    if (lapMs < ttBestMs) ttBestMs = lapMs;
+    mhSubEl.textContent = 'BEST: ' + msToTime(ttBestMs);
+  } else if (gameMode === 'sprint') {
+    if (!playerFinished) {
+      playerFinished = true;
+      sprintPlaces.push('player');
+      const pos = sprintPlaces.indexOf('player') + 1;
+      const posStr = ['1ST 🏆','2ND','3RD','4TH','5TH'][pos-1] || (pos+'TH');
+      showWin('FINISHED ' + posStr, 'SPRINT COMPLETE');
+    }
+  }
+}
+
+function onModeBotLap(botIdx) {
+  // Called when a bot crosses the finish line in sprint
+  if (gameMode === 'sprint' && !sprintPlaces.includes(botIdx)) {
+    sprintPlaces.push(botIdx);
+    // If player hasn't finished and all bots have, player is last
+    if (!playerFinished && sprintPlaces.length >= bots.length) {
+      playerFinished = true;
+      showWin('FINISHED LAST 😬', 'BETTER LUCK NEXT TIME');
+    }
+  }
+}
+
 let gameActive = false;
 let gamePaused = false;
 const pauseOverlayEl = document.getElementById('pauseOverlay');
@@ -1760,6 +2036,7 @@ function startSequence() {
         lights.forEach(l => l.classList.remove('red'));
         panel.style.display = 'none';
         gameActive = true;
+        initModeState();
       }, 800 + Math.random() * 1400);
     }
   }, 800);
@@ -1857,6 +2134,7 @@ function animate() {
     updateExplosion();
     updateBots();
     updateMinimap();
+    updateModeLogic();
   }
   if (trackNotifTimer > 0) {
     trackNotifTimer--;
