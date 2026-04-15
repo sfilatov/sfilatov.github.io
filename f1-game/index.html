@@ -1533,9 +1533,20 @@ function checkCollision() {
     const dx = carMesh.position.x - bot.mesh.position.x;
     const dz = carMesh.position.z - bot.mesh.position.z;
     if (dx * dx + dz * dz < BOT_COLLISION_R2) {
-      spawnExplosion();
-      crashBot(bot);
-      return;
+      // Determine if the bot is approaching from behind the player.
+      // Project bot→player vector onto the player's forward direction.
+      // Positive dot = bot is in front of player; negative = bot is behind.
+      const fwdX = Math.sin(carAngle), fwdZ = Math.cos(carAngle);
+      const dot  = dx * fwdX + dz * fwdZ; // positive means bot is behind player
+      if (dot > 0) {
+        // Bot rear-ended the player — only crash the bot, player is safe
+        crashBot(bot);
+      } else {
+        // Player ran into the bot from the front/side — player crashes too
+        spawnExplosion();
+        crashBot(bot);
+        return;
+      }
     }
   }
 }
