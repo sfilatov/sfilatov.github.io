@@ -175,6 +175,16 @@
     /* On touch devices: lift HUD above controls, hide keyboard hint */
     body.touch #hud  { bottom: 120px; }
     body.touch #hint { display: none !important; }
+
+    /* ── Minimap ── */
+    #minimap {
+      display: none; position: absolute; bottom: 24px; left: 24px;
+      width: 160px; height: 160px;
+      background: rgba(0,0,0,0.55); border: 1px solid #444;
+      border-radius: 8px; overflow: hidden;
+      pointer-events: none;
+    }
+    #minimapCanvas { display: block; }
   </style>
 </head>
 <body>
@@ -209,6 +219,11 @@
   <div id="rpmTrack"><div id="rpmFill"></div></div>
   <div id="rpmLabel">RPM ──────────────── REDLINE</div>
   <div id="lapCount">KOL <span id="lapNum">0</span></div>
+</div>
+
+<!-- ── Minimap ── -->
+<div id="minimap">
+  <canvas id="minimapCanvas" width="160" height="160"></canvas>
 </div>
 
 <!-- ── Track switch notification ── -->
@@ -476,6 +491,10 @@ let trackGroup = null;
 const trackNotifEl    = document.getElementById('trackNotif');
 let   trackNotifTimer = 0;
 
+// Minimap state (constants needed by rebuildMinimapBounds, called inside loadTrack)
+const MM_W = 160, MM_H = 160, MM_PAD = 10;
+let mmMinX = 0, mmMinZ = 0, mmScaleX = 1, mmScaleZ = 1;
+
 function loadTrack(idx) {
   if (trackGroup) scene.remove(trackGroup);
   const { pts, tangents, normals } = computeTrackData(TRACK_LAYOUTS[idx % TRACK_LAYOUTS.length]);
@@ -484,6 +503,7 @@ function loadTrack(idx) {
   tNormals.splice(0, tNormals.length, ...normals);
   trackGroup = buildTrackGeometry(tPts, tTangents, tNormals);
   scene.add(trackGroup);
+  rebuildMinimapBounds();
 }
 
 // Build the first track so tPts / tTangents / tNormals are ready
@@ -1727,6 +1747,7 @@ document.getElementById('startBtn').addEventListener('click', () => {
   renderLives();
   document.getElementById('overlay').style.display = 'none';
   document.getElementById('hud').style.display     = 'block';
+  document.getElementById('minimap').style.display = 'block';
   if (isTouchDevice) {
     document.getElementById('mobileControls').style.display = 'block';
   } else {
@@ -1738,6 +1759,71 @@ document.getElementById('startBtn').addEventListener('click', () => {
 // ═══════════════════════════════════════════════════════════════════
 //  ANIMATION LOOP
 // ═══════════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════
+//  MINIMAP
+// ═══════════════════════════════════════════════════════════════════
+const mmCanvas = document.getElementById('minimapCanvas');
+const mmCtx    = mmCanvas.getContext('2d');
+
+// Bot CSS colors matching their Three.js hex
+const BOT_MM_COLORS = ['#FF8700', '#00594f', '#005AFF', '#aaaaaa'];
+
+function rebuildMinimapBounds() {
+  if (!tPts.length) return;
+  let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+  for (const p of tPts) {
+    if (p.x < minX) minX = p.x; if (p.x > maxX) maxX = p.x;
+    if (p.z < minZ) minZ = p.z; if (p.z > maxZ) maxZ = p.z;
+  }
+  mmMinX   = minX; mmMinZ = minZ;
+  mmScaleX = (MM_W - MM_PAD * 2) / (maxX - minX || 1);
+  mmScaleZ = (MM_H - MM_PAD * 2) / (maxZ - minZ || 1);
+}
+
+function mmProject(wx, wz) {
+  return {
+    x: MM_PAD + (wx - mmMinX) * mmScaleX,
+    y: MM_PAD + (wz - mmMinZ) * mmScaleZ,
+  };
+}
+
+function updateMinimap() {
+  mmCtx.clearRect(0, 0, MM_W, MM_H);
+
+  // Draw track centerline
+  mmCtx.beginPath();
+  mmCtx.strokeStyle = 'rgba(255,255,255,0.25)';
+  mmCtx.lineWidth = 5;
+  for (let i = 0; i < tPts.length; i++) {
+    const { x, y } = mmProject(tPts[i].x, tPts[i].z);
+    i === 0 ? mmCtx.moveTo(x, y) : mmCtx.lineTo(x, y);
+  }
+  mmCtx.closePath();
+  mmCtx.stroke();
+
+  // Draw bots
+  bots.forEach((bot, i) => {
+    if (bot.crashed) return;
+    const { x, y } = mmProject(bot.mesh.position.x, bot.mesh.position.z);
+    mmCtx.beginPath();
+    mmCtx.arc(x, y, 4, 0, Math.PI * 2);
+    mmCtx.fillStyle = BOT_MM_COLORS[i] || '#fff';
+    mmCtx.fill();
+  });
+
+  // Draw player (red dot, slightly larger)
+  if (!carCrashed) {
+    const { x, y } = mmProject(carMesh.position.x, carMesh.position.z);
+    mmCtx.beginPath();
+    mmCtx.arc(x, y, 5.5, 0, Math.PI * 2);
+    mmCtx.fillStyle = '#FF1801';
+    mmCtx.strokeStyle = '#fff';
+    mmCtx.lineWidth = 1.5;
+    mmCtx.fill();
+    mmCtx.stroke();
+  }
+}
+
 function animate() {
   requestAnimationFrame(animate);
   if (gameActive) {
@@ -1746,6 +1832,7 @@ function animate() {
     updateHUD();
     updateExplosion();
     updateBots();
+    updateMinimap();
   }
   if (trackNotifTimer > 0) {
     trackNotifTimer--;
